@@ -1,0 +1,52 @@
+[project]
+name = "5agents"
+version = "0.1.0"
+description = "5体構成のマルチエージェントAIシステム (Research → Analysis → Critique → Fact-check → Finalize)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "koshiro-y-0" },
+]
+dependencies = [
+    # LLM / Agent framework
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-community>=0.3.0",
+    # Web検索
+    "tavily-python>=0.5.0",
+    # UI
+    "streamlit>=1.40.0",
+    # 記憶・データ
+    "chromadb>=0.5.0",
+    # 金融データ
+    "yfinance>=0.2.50",
+    # ユーティリティ
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+    "mypy>=1.13.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
