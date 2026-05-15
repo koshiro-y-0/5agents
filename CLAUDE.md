@@ -308,7 +308,7 @@ gh pr merge --squash --delete-branch
 
 ## 9. 開発フェーズ（ロードマップ）
 
-現在地: **Phase 1 着手前**
+現在地: **Phase 2 進行中** (Phase 1 ✅完了)
 
 | Phase | 期間目安 | ゴール |
 |---|---|---|

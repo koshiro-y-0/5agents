@@ -45,71 +45,66 @@
 
 ---
 
-## 🛠️ Phase 1 — 環境構築・単体動作確認 (進行中)
+## 🛠️ Phase 1 — 環境構築・単体動作確認 ✅ 完了
 
-### 🤖 自動（Claude 側で実装済み）
+### 🤖 自動
 
 - [x] uv による Python 3.11 プロジェクト初期化
 - [x] 依存関係定義 (LangGraph / Streamlit / ChromaDB / Tavily / yfinance)
-- [x] `.gitignore` / `.env.example` / `README.md`
-- [x] `CLAUDE.md` (AI 開発指針)
+- [x] `.gitignore` / `.env.example` / `README.md` / `CLAUDE.md` / `TODO.md`
 - [x] `src/config.py` (pydantic-settings)
 - [x] `src/llm.py` (役割別 Gemini ファクトリ)
 - [x] `src/agents/state.py` (LangGraph State 型)
-- [x] `src/agents/orchestrator.py` (単体エージェント)
+- [x] `src/agents/orchestrator.py` (単体エージェント版)
 - [x] `src/app.py` (Streamlit 最小チャット UI)
 - [x] テスト 8 件 (`tests/test_config.py`, `tests/test_llm.py`)
 - [x] GitHub Flow ブランチ戦略確立 (PR 必須)
-
-### 🤖 自動（残作業）
-
-- [ ] **疎通確認テスト**を `tests/test_orchestrator_live.py` として追加
-  - `@pytest.mark.live` でマーク（通常は除外、明示時のみ実行）
-  - `uv run pytest -m live` で実行可能
-- [ ] **CI ワークフロー** (`.github/workflows/ci.yml`) を追加
-  - `uv sync` → `ruff check` → `pytest` を main / PR で自動実行
-- [ ] **PR テンプレート** (`.github/pull_request_template.md`) を追加
+- [x] **Streamlit 起動時の `ModuleNotFoundError` 修正** (PR #4, editable install)
 
 ### 👤 手動
 
-- [ ] **Phase 1 の体感確認**
-  - Streamlit でいくつか質問を投げる
-  - 回答の質・速度・エラー有無を確認
-  - 気づきを Claude にフィードバック
+- [x] Gemini API キー取得・`.env` 設定
+- [x] Streamlit で動作確認 (Gemini API key OK 表示済み)
+
+### 🤖 自動（任意・後回し）
+
+- [ ] CI ワークフロー (`.github/workflows/ci.yml`)
+- [ ] PR テンプレート (`.github/pull_request_template.md`)
+- [ ] `tests/test_orchestrator_live.py` (`@pytest.mark.live`)
 
 ---
 
-## 🤖 Phase 2 — 5 エージェント構築 (次の山場)
+## 🤖 Phase 2 — 5 エージェント構築 (現フェーズ)
 
-### 🤖 自動（Claude 側）
+### 🤖 自動（Claude 側で実装済み）
 
-- [ ] **Researcher (A)** 実装 — `src/agents/researcher.py`
-  - Tavily で Web 検索 → 上位 5 件を要約
-- [ ] **Tavily ラッパー** — `src/tools/web_search.py`
-- [ ] **Analyst (B)** 実装 — `src/agents/analyst.py`
-  - Researcher の出力を受けて分析・予測
-- [ ] **Critic (C)** 実装 — `src/agents/critic.py`
-  - A/B の出力に反論・別視点を加える
-- [ ] **Fact-checker (D)** 実装 — `src/agents/factchecker.py`
-  - 構造化判定 `{"verdict": "OK"|"NG", "issues": [...]}` を返す
-- [ ] **Finalizer (E)** 実装 — `src/agents/finalizer.py`
-  - 全エージェントの出力を統合・整形
-- [ ] **LangGraph パイプライン** — `src/agents/orchestrator.py` を書き直し
-  - A → B → C → D → E の StateGraph
-  - D が NG の場合 B へ差し戻し（最大 2 回、`max_factcheck_retries` で制御）
-- [ ] **Streamlit UI 拡張**
-  - 各エージェントの中間出力を expand パネルで可視化
-  - 差し戻し回数をバッジ表示
-- [ ] **テスト**（各エージェントのプロンプト・パイプライン・ループ上限）
+- [x] **Tavily ラッパー** — `src/tools/web_search.py` (キー未設定時は空結果を返すフォールバック)
+- [x] **Researcher (A)** — `src/agents/researcher.py` (Tavily → LLM 要約)
+- [x] **Analyst (B)** — `src/agents/analyst.py`
+- [x] **Critic (C)** — `src/agents/critic.py`
+- [x] **Fact-checker (D)** — `src/agents/factchecker.py` (JSON 構造化判定 + 頑健なパース)
+- [x] **Finalizer (E)** — `src/agents/finalizer.py`
+- [x] **LangGraph パイプライン** — `src/agents/orchestrator.py` 全面書き換え
+  - START → A → B → C → D → (条件分岐) → E → END
+  - D=NG かつ retry<max なら B に差し戻し、retry≥max なら E に進む
+- [x] **Streamlit UI 拡張** — エージェント別 expander、Fact-check バッジ
+- [x] **テスト追加** — 計 20 件パス (Phase 1 の 8 + Phase 2 の 12)
+  - `tests/test_factchecker.py` (JSON パースの頑健性)
+  - `tests/test_orchestrator.py` (差し戻しルーティング)
+  - `tests/test_web_search.py` (Tavily スタブ動作)
 
 ### 👤 手動
 
-- [ ] Phase 2 PR のレビュー＆マージ
-- [ ] 実際の質問で 5 エージェント挙動を確認・フィードバック
+- [ ] **Tavily API キー取得** — https://tavily.com/ (無料枠 1,000 req/月)
+- [ ] **`.env` の `TAVILY_API_KEY=` を更新**
+- [ ] **Phase 2 PR をレビュー＆マージ**
+- [ ] **実質問で 5 エージェント挙動を確認** — 中間出力パネルで各エージェントの貢献を観察
+- [ ] **コスト監視** — [Google AI Studio](https://aistudio.google.com/) の Usage で消費量を確認
 
 ### ⚙️ 協働
 
-- [ ] **コスト確認** — Gemini API ダッシュボードで消費量を観察し、必要なら設計調整
+- [ ] **プロンプト調整** — 出力品質を見て各エージェントの system prompt を微調整
+- [ ] **モデル選択の妥当性検証** — Critic/Fact-checker の Flash-Lite が十分か確認
 
 ---
 
