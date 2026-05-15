@@ -112,8 +112,9 @@
 
 ### 🤖 自動（Claude 側）
 
-- [ ] **yfinance ラッパー** — `src/tools/finance.py`
-- [ ] **株価データ取得**を Analyst に接続
+- [x] **yfinance ラッパー** — `src/tools/finance.py` (社名→ティッカー逆引き + スナップショット取得)
+- [x] **株価データ取得**を Analyst に接続 (質問からティッカー自動抽出 → プロンプト注入)
+- [x] **テスト追加**: `tests/test_finance.py` (10 件パス、ネットワーク不要)
 - [ ] **ChromaDB クライアント** — `src/memory/vector_store.py`
   - 過去の Q&A・分析結果をベクトル化して保存
 - [ ] **会話履歴の文脈活用**
