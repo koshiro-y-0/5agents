@@ -63,7 +63,8 @@ class RunStats:
     duration_ms: int | None
     final_verdict: str | None
     retry_count: int
-    agent_durations: dict[str, int]  # agent name → ms
+    agent_durations: dict[str, int]  # agent name → 合計 ms (差し戻し時は複数回呼ばれるので加算)
+    agent_call_counts: dict[str, int]  # agent name → 呼び出し回数
 
 
 class RunLogger:
@@ -140,7 +141,11 @@ class RunLogger:
     # --- analytics ---
 
     def get_run_stats(self, run_id: str) -> RunStats | None:
-        """1 run の集計を返す (UI 表示用)."""
+        """1 run の集計を返す (UI 表示用).
+
+        差し戻しループで同じエージェントが複数回呼ばれている場合は、
+        所要時間を合計し、呼び出し回数を別途記録する。
+        """
         with self._connect() as conn:
             run = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
             if run is None:
@@ -148,13 +153,22 @@ class RunLogger:
             calls = conn.execute(
                 "SELECT agent, duration_ms FROM agent_calls WHERE run_id = ?", (run_id,)
             ).fetchall()
+
+        agent_durations: dict[str, int] = {}
+        agent_call_counts: dict[str, int] = {}
+        for c in calls:
+            agent = c["agent"]
+            agent_durations[agent] = agent_durations.get(agent, 0) + (c["duration_ms"] or 0)
+            agent_call_counts[agent] = agent_call_counts.get(agent, 0) + 1
+
         return RunStats(
             run_id=run["id"],
             question=run["question"],
             duration_ms=run["duration_ms"],
             final_verdict=run["final_verdict"],
             retry_count=run["retry_count"] or 0,
-            agent_durations={c["agent"]: c["duration_ms"] or 0 for c in calls},
+            agent_durations=agent_durations,
+            agent_call_counts=agent_call_counts,
         )
 
     def recent_runs(self, limit: int = 10) -> list[dict]:
@@ -162,6 +176,45 @@ class RunLogger:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, question, duration_ms, final_verdict, retry_count, started_at "
+                "FROM runs ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def daily_run_counts(self, last_n_days: int = 14) -> list[dict]:
+        """直近 N 日分の日別実行数 (新しい順 → 古い順に並べ替えて返却)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DATE(started_at) AS date, COUNT(*) AS count "
+                "FROM runs WHERE started_at >= DATE('now', ? ) "
+                "GROUP BY DATE(started_at) ORDER BY date ASC",
+                (f"-{last_n_days} days",),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def agent_total_durations(self, last_n_days: int = 14) -> list[dict]:
+        """直近 N 日のエージェント別合計所要時間 (秒)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT agent, "
+                "SUM(duration_ms) AS total_ms, "
+                "COUNT(*) AS call_count "
+                "FROM agent_calls "
+                "WHERE started_at >= DATE('now', ?) "
+                "GROUP BY agent ORDER BY total_ms DESC",
+                (f"-{last_n_days} days",),
+            ).fetchall()
+        return [
+            {"agent": r["agent"], "total_s": (r["total_ms"] or 0) / 1000, "calls": r["call_count"]}
+            for r in rows
+        ]
+
+    def all_runs_for_dashboard(self, limit: int = 100) -> list[dict]:
+        """ダッシュボードのテーブル表示用に直近 N 件を取得."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, question, duration_ms, final_verdict, retry_count, "
+                "started_at, finished_at, error "
                 "FROM runs ORDER BY started_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()

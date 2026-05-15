@@ -135,28 +135,43 @@
 
 ---
 
-## 📊 Phase 4 — ダッシュボード・自動化
+## 📊 Phase 4 — ダッシュボード・自動化 ✅ 完了
 
 ### 🤖 自動（Claude 側）
 
-- [ ] **Streamlit ダッシュボード** — チャート・グラフ表示
-- [ ] **定期実行スクリプト** — `src/scheduler.py`
-  - 毎朝 9 時にウォッチリスト銘柄のレポート生成
-- [ ] **通知連携** (オプション) — LINE Notify or Discord Webhook
+- [x] **agent_durations 集計バグ修正** — 差し戻し時の同名エージェント所要時間を合計、`agent_call_counts` を追加
+- [x] **Streamlit ダッシュボード** — 「💬 チャット」/「📊 ダッシュボード」のタブ構成
+  - KPI: 実行回数 / NG 率 / 平均所要時間 / 平均リトライ
+  - 日別実行数 (Plotly 棒グラフ)
+  - エージェント別合計所要時間 (横棒、呼び出し回数併記)
+  - 実行履歴テーブル (期間スライダー可変)
+- [x] **定期実行スクリプト** — `src/scheduler.py`
+  - `watchlist.txt` の全質問を順次処理
+  - `--dry-run` フラグで通知なしの動作確認
+  - 1 件失敗しても全体は止まらないフェイルセーフ
+- [x] **通知連携** — `src/notifications/notifier.py`
+  - LINE Notify / Discord Webhook 両対応
+  - `CompositeNotifier` で複数チャネルに同時送信
+  - 例外を握ってログのみ (定期実行を止めない)
+- [x] **デプロイ手順書** — `docs/DEPLOYMENT.md` (案 A: launchd / 案 B: VPS / 案 C: Lambda)
+- [x] **テスト追加**:
+  - `tests/test_notifier.py` 7 件 (httpx モック)
+  - `tests/test_scheduler.py` 9 件 (answer / notifier モック)
+  - `tests/test_run_logger.py` に集計バグ修正用テスト 2 件追加
 
 ### 👤 手動
 
-- [ ] **(オプション) LINE Notify トークン取得** — https://notify-bot.line.me/
-- [ ] **(オプション) Discord Webhook URL 作成** — サーバー設定 → 連携サービス
-- [ ] **(オプション) デプロイ先の選定**
-  - 案 A: ローカル常駐（Mac の `launchd` で cron 化、コストゼロ）
-  - 案 B: 軽量 VPS（さくらの VPS 月数百円〜）
-  - 案 C: AWS Lambda + EventBridge（無料枠でほぼ収まる）
-- [ ] **デプロイ実行**（選定後、Claude が手順書を作成しユーザーが実行）
+- [ ] **ウォッチリスト作成** — `cp watchlist.example.txt watchlist.txt` → 質問を編集
+- [ ] **(任意) LINE Notify トークン取得** — https://notify-bot.line.me/
+- [ ] **(任意) Discord Webhook URL 作成** — サーバー設定 → 連携サービス
+- [ ] **(任意) デプロイ先の選定 → 実行**
+  - 案 A: Mac の launchd (推奨、`docs/DEPLOYMENT.md` 参照)
+  - 案 B: VPS + systemd + nginx + 認証
+  - 案 C: AWS Lambda + EventBridge
 
 ### ⚙️ 協働
 
-- [ ] **本番運用に向けた最終調整** — ログレベル / エラー通知 / コストアラート
+- [x] **本番運用に向けた最終調整** — ログレベル / エラー通知 / コストアラートの設計を `docs/DEPLOYMENT.md` に集約
 
 ---
 

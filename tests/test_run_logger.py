@@ -37,6 +37,23 @@ def test_log_agent_call_persists(rlog: RunLogger) -> None:
     stats = rlog.get_run_stats(run_id)
     assert stats is not None
     assert stats.agent_durations == {"researcher": 500, "analyst": 800}
+    assert stats.agent_call_counts == {"researcher": 1, "analyst": 1}
+
+
+def test_retried_agent_durations_are_summed(rlog: RunLogger) -> None:
+    """差し戻しで同じエージェントが複数回呼ばれた場合、所要時間が合計される."""
+    run_id = rlog.start_run("Q")
+    # Analyst が 3 回呼ばれた状況をシミュレート
+    rlog.log_agent_call(run_id, "analyst", "gemini-2.5-flash", 1000)
+    rlog.log_agent_call(run_id, "analyst", "gemini-2.5-flash", 1200)
+    rlog.log_agent_call(run_id, "analyst", "gemini-2.5-flash", 800)
+    rlog.log_agent_call(run_id, "critic", "gemini-2.5-flash-lite", 500)
+    rlog.finish_run(run_id, duration_ms=3500, final_verdict="NG", retry_count=2)
+
+    stats = rlog.get_run_stats(run_id)
+    assert stats is not None
+    assert stats.agent_durations == {"analyst": 3000, "critic": 500}
+    assert stats.agent_call_counts == {"analyst": 3, "critic": 1}
 
 
 def test_recent_runs_returns_newest_first(rlog: RunLogger) -> None:
@@ -77,6 +94,32 @@ def test_time_agent_records_duration(rlog: RunLogger) -> None:
     duration = stats.agent_durations.get("researcher", 0)
     # 50ms 以上、200ms 未満 (システム負荷で多少ぶれる)
     assert 40 <= duration < 200, f"unexpected duration: {duration}ms"
+
+
+def test_agent_total_durations_aggregates(rlog: RunLogger) -> None:
+    """ダッシュボード用の集計クエリ: エージェント別合計時間を計算."""
+    run_id = rlog.start_run("Q")
+    rlog.log_agent_call(run_id, "researcher", "gemini-2.5-flash", 1000)
+    rlog.log_agent_call(run_id, "researcher", "gemini-2.5-flash", 2000)
+    rlog.log_agent_call(run_id, "analyst", "gemini-2.5-flash", 500)
+    rlog.finish_run(run_id, duration_ms=3500, final_verdict="OK", retry_count=0)
+
+    totals = rlog.agent_total_durations(last_n_days=30)
+    by_agent = {t["agent"]: t for t in totals}
+    assert by_agent["researcher"]["total_s"] == 3.0
+    assert by_agent["researcher"]["calls"] == 2
+    assert by_agent["analyst"]["total_s"] == 0.5
+    assert by_agent["analyst"]["calls"] == 1
+
+
+def test_all_runs_for_dashboard_returns_latest(rlog: RunLogger) -> None:
+    """ダッシュボード用テーブル: 新しい順で取得."""
+    for i in range(3):
+        rid = rlog.start_run(f"Q{i}")
+        rlog.finish_run(rid, duration_ms=100, final_verdict="OK", retry_count=0)
+    rows = rlog.all_runs_for_dashboard(limit=10)
+    assert len(rows) == 3
+    assert rows[0]["question"] == "Q2"
 
 
 def test_time_agent_records_error_and_reraises(rlog: RunLogger) -> None:

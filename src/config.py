@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # --- Web search ---
     tavily_api_key: str = Field(default="", description="Tavily API key")
 
+    # --- 通知 (Phase 4, 任意) ---
+    line_notify_token: str = Field(default="", description="LINE Notify token")
+    discord_webhook_url: str = Field(default="", description="Discord Webhook URL")
+
+    # --- 定期実行 (Phase 4) ---
+    watchlist_file: Path = Field(default=Path("./watchlist.txt"))
+
     # --- Persistence ---
     chroma_persist_dir: Path = Field(default=Path("./data/chroma_db"))
     sqlite_path: Path = Field(default=Path("./data/agents.sqlite3"))
