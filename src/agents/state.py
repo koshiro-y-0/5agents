@@ -21,6 +21,9 @@ class AgentState(TypedDict, total=False):
     # 入力
     question: str
 
+    # Phase 3: 過去の関連 Q&A (Researcher に注入)
+    memory_context: str
+
     # A: Researcher
     research_notes: str
     research_sources: list[str]
