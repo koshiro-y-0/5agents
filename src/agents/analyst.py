@@ -16,6 +16,8 @@ from src.llm import AgentRole, get_llm
 from src.tools.finance import (
     extract_tickers,
     fetch_snapshots,
+)
+from src.tools.finance import (
     format_for_prompt as format_stock_data,
 )
 
