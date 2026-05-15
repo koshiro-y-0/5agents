@@ -108,7 +108,7 @@
 
 ---
 
-## 💾 Phase 3 — データ連携・記憶
+## 💾 Phase 3 — データ連携・記憶 ✅ 完了
 
 ### 🤖 自動（Claude 側）
 
@@ -122,8 +122,11 @@
   - Researcher が類似する過去 Q&A を取得しプロンプト注入
   - Finalizer が最終回答を保存 (失敗時もユーザー応答は止めない)
 - [x] **テスト**: `tests/test_vector_store.py` 9 件 (一時ディレクトリ使用、ネットワーク不要)
-- [ ] **SQLite ロガー** — `src/memory/logger.py`
-  - 全エージェントの呼び出しログ・コスト・所要時間を記録
+- [x] **SQLite ロガー** — `src/memory/logger.py`
+  - `runs` / `agent_calls` テーブルで質問単位 + ノード単位の所要時間を記録
+  - `time_agent` context manager + Orchestrator の `_instrument()` でラップ自動計測
+  - `recent_runs()` / `get_run_stats()` を Streamlit サイドバー＆メトリクス表示で活用
+- [x] **テスト**: `tests/test_run_logger.py` 8 件 (一時 SQLite)
 
 ### 👤 手動
 

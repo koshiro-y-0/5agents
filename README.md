@@ -95,7 +95,7 @@ GitHub Flow を採用しています。
 
 - [x] **Phase 1** — 環境構築・単体動作確認 ✅
 - [x] **Phase 2** — 5エージェント構築 (LangGraph + Tavily) ✅
-- [ ] **Phase 3** — データ連携・記憶の実装 (2〜3週間)
+- [x] **Phase 3** — データ連携・記憶 (yfinance / ChromaDB / SQLite) ✅
 - [ ] **Phase 4** — ダッシュボード UI・自動化 (2〜4週間)
 
 詳細は [docs/AIエージェント構築計画書.docx](./docs/AIエージェント構築計画書.docx) を参照。

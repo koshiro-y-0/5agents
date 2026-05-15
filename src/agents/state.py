@@ -40,3 +40,6 @@ class AgentState(TypedDict, total=False):
 
     # E: Finalizer
     final_answer: str
+
+    # Phase 3: SQLite ロガーが採番する run の識別子 (UI で経過時間表示などに利用)
+    run_id: str
