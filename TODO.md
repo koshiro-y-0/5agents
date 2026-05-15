@@ -108,19 +108,25 @@
 
 ---
 
-## 💾 Phase 3 — データ連携・記憶
+## 💾 Phase 3 — データ連携・記憶 ✅ 完了
 
 ### 🤖 自動（Claude 側）
 
-- [ ] **yfinance ラッパー** — `src/tools/finance.py`
-- [ ] **株価データ取得**を Analyst に接続
-- [ ] **ChromaDB クライアント** — `src/memory/vector_store.py`
-  - 過去の Q&A・分析結果をベクトル化して保存
-- [ ] **会話履歴の文脈活用**
-  - 「先週と比べて」「前回の分析と比較して」等の質問に対応
-- [ ] **SQLite ロガー** — `src/memory/logger.py`
-  - 全エージェントの呼び出しログ・コスト・所要時間を記録
-- [ ] **テスト**（in-memory ChromaDB / 一時 SQLite）
+- [x] **yfinance ラッパー** — `src/tools/finance.py` (社名→ティッカー逆引き + スナップショット取得)
+- [x] **株価データ取得**を Analyst に接続 (質問からティッカー自動抽出 → プロンプト注入)
+- [x] **テスト追加**: `tests/test_finance.py` (10 件パス、ネットワーク不要)
+- [x] **ChromaDB クライアント** — `src/memory/vector_store.py`
+  - `QAMemory` クラスで Q&A の保存・類似検索を提供
+  - ChromaDB のデフォルト embedding (all-MiniLM-L6-v2) で外部 API 不要
+- [x] **会話履歴の文脈活用**
+  - Researcher が類似する過去 Q&A を取得しプロンプト注入
+  - Finalizer が最終回答を保存 (失敗時もユーザー応答は止めない)
+- [x] **テスト**: `tests/test_vector_store.py` 9 件 (一時ディレクトリ使用、ネットワーク不要)
+- [x] **SQLite ロガー** — `src/memory/logger.py`
+  - `runs` / `agent_calls` テーブルで質問単位 + ノード単位の所要時間を記録
+  - `time_agent` context manager + Orchestrator の `_instrument()` でラップ自動計測
+  - `recent_runs()` / `get_run_stats()` を Streamlit サイドバー＆メトリクス表示で活用
+- [x] **テスト**: `tests/test_run_logger.py` 8 件 (一時 SQLite)
 
 ### 👤 手動
 

@@ -1,11 +1,20 @@
-"""E: Finalizer — 全エージェントの出力を統合し最終回答を生成."""
+"""E: Finalizer — 全エージェントの出力を統合し最終回答を生成.
+
+Phase 3 拡張:
+- 最終回答を ChromaDB の QAMemory に保存し、次回以降の文脈質問に活用
+"""
 
 from __future__ import annotations
+
+import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.agents.state import AgentState
 from src.llm import AgentRole, get_llm
+from src.memory.vector_store import QAMemory
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """あなたは熟練したテクニカルライターです。
 Researcher / Analyst / Critic / Fact-checker の出力を統合し、
@@ -56,4 +65,12 @@ def run_finalizer(state: AgentState) -> AgentState:
         ]
     )
 
-    return {**state, "final_answer": str(response.content)}
+    final_answer = str(response.content)
+
+    # Phase 3: QAMemory に保存 (失敗してもユーザー応答は止めない)
+    try:
+        QAMemory().add(question=state["question"], answer=final_answer)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Finalizer: QAMemory 保存失敗: %s", e)
+
+    return {**state, "final_answer": final_answer}

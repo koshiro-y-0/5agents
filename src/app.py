@@ -1,8 +1,6 @@
-"""Phase 2: Streamlit 5 エージェント可視化 UI.
+"""Phase 3: Streamlit 5 エージェント可視化 UI + 実行統計.
 
 起動: uv run streamlit run src/app.py
-
-各エージェント (A→B→C→D→E) の中間出力を expander で展開して確認できる。
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ import streamlit as st
 from src.agents.orchestrator import answer
 from src.agents.state import AgentState
 from src.config import get_settings
+from src.memory.logger import RunLogger
 
 st.set_page_config(page_title="5agents", page_icon="🤖", layout="wide")
 
@@ -45,22 +44,65 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
+    # --- 直近の実行統計 ---
+    st.divider()
+    st.subheader("直近の実行")
+    try:
+        rlog = RunLogger()
+        recent = rlog.recent_runs(limit=5)
+        if not recent:
+            st.caption("まだ実行履歴はありません")
+        else:
+            for r in recent:
+                duration_s = (r.get("duration_ms") or 0) / 1000
+                verdict = r.get("final_verdict") or "?"
+                retry = r.get("retry_count") or 0
+                q_preview = (r.get("question") or "")[:30] + (
+                    "..." if len(r.get("question") or "") > 30 else ""
+                )
+                st.caption(
+                    f"- `{verdict}` {duration_s:.1f}s (retry={retry}) — {q_preview}"
+                )
+    except Exception as e:  # noqa: BLE001
+        st.caption(f"統計取得失敗: {e}")
+
 
 def _render_intermediate(state: AgentState) -> None:
     """各エージェントの中間出力を expander で描画."""
     fact_check = state.get("fact_check", {"verdict": "OK", "issues": []})
     retry = state.get("retry_count", 0)
 
-    # ステータスバッジ
+    # 各エージェントの所要時間を SQLite から取得
+    agent_durations: dict[str, int] = {}
+    total_ms: int | None = None
+    run_id = state.get("run_id")
+    if run_id:
+        try:
+            stats = RunLogger().get_run_stats(run_id)
+            if stats:
+                agent_durations = stats.agent_durations
+                total_ms = stats.duration_ms
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _dur(agent: str) -> str:
+        ms = agent_durations.get(agent, 0)
+        return f"{ms / 1000:.1f}s" if ms else "—"
+
+    # ステータスバッジ (経過時間付き)
     cols = st.columns(5)
-    cols[0].metric("A: Researcher", "✅")
-    cols[1].metric("B: Analyst", "✅")
-    cols[2].metric("C: Critic", "✅")
+    cols[0].metric("A: Researcher", "✅", _dur("researcher"))
+    cols[1].metric("B: Analyst", "✅", _dur("analyst"))
+    cols[2].metric("C: Critic", "✅", _dur("critic"))
     cols[3].metric(
         "D: Fact-check",
         "✅ OK" if fact_check["verdict"] == "OK" else f"⚠️ NG (retry={retry})",
+        _dur("factchecker"),
     )
-    cols[4].metric("E: Finalizer", "✅")
+    cols[4].metric("E: Finalizer", "✅", _dur("finalizer"))
+
+    if total_ms:
+        st.caption(f"合計所要時間: **{total_ms / 1000:.1f} 秒** (run_id: `{run_id}`)")
 
     with st.expander("🔍 A: Researcher (Web検索・情報収集)"):
         st.markdown(state.get("research_notes", "(なし)"))

@@ -21,6 +21,9 @@ class AgentState(TypedDict, total=False):
     # 入力
     question: str
 
+    # Phase 3: 過去の関連 Q&A (Researcher に注入)
+    memory_context: str
+
     # A: Researcher
     research_notes: str
     research_sources: list[str]
@@ -37,3 +40,6 @@ class AgentState(TypedDict, total=False):
 
     # E: Finalizer
     final_answer: str
+
+    # Phase 3: SQLite ロガーが採番する run の識別子 (UI で経過時間表示などに利用)
+    run_id: str
