@@ -19,7 +19,7 @@ resolution-markers = [
 [[package]]
 name = "5agents"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
     { name = "langchain" },
