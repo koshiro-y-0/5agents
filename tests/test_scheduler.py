@@ -9,6 +9,13 @@ import pytest
 from src.scheduler import _format_short_report, load_watchlist, run_scheduled
 
 
+@pytest.fixture(autouse=True)
+def _quota_always_available():  # type: ignore[no-untyped-def]
+    """既存テストでは quota guard が常に通る前提に固定."""
+    with patch("src.scheduler.has_quota_for_question", return_value=True):
+        yield
+
+
 def test_load_watchlist_skips_comments_and_blank_lines(tmp_path) -> None:  # type: ignore[no-untyped-def]
     f = tmp_path / "wl.txt"
     f.write_text(
@@ -113,3 +120,61 @@ def test_run_scheduled_dry_run_does_not_send(tmp_path, flag) -> None:  # type: i
         notifier.send.assert_not_called()
     else:
         notifier.send.assert_called_once()
+
+
+# --- Quota guard ---
+
+
+def test_run_scheduled_skips_when_quota_exhausted(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """事前に Flash 枠が足りない場合、answer() を呼ばずスキップして抜ける."""
+    wl = tmp_path / "wl.txt"
+    wl.write_text("Q1\nQ2\nQ3\n", encoding="utf-8")
+
+    notifier = MagicMock()
+    notifier.is_empty = True
+    notifier.send.return_value = {}
+    fake_status = MagicMock()
+    fake_status.remaining = 1
+    fake_status.used = 19
+    fake_status.limit = 20
+
+    with (
+        patch("src.scheduler.answer") as mock_answer,
+        patch("src.scheduler.build_default_notifier", return_value=notifier),
+        # 既存の autouse fixture をオーバーライド
+        patch("src.scheduler.has_quota_for_question", return_value=False),
+        patch("src.scheduler.get_flash_quota_status", return_value=fake_status),
+    ):
+        result = run_scheduled(watchlist_path=wl, dry_run=True)
+
+    # 1 質問も処理しない
+    mock_answer.assert_not_called()
+    # 戻り値は処理した件数 (= 0)
+    assert result == 0
+
+
+def test_run_scheduled_quota_check_runs_before_each_question(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """質問ごとに quota check が走る (途中で枯渇したら以降スキップ)."""
+    wl = tmp_path / "wl.txt"
+    wl.write_text("Q1\nQ2\nQ3\n", encoding="utf-8")
+
+    # 1 件目は OK、2 件目以降は枯渇
+    has_quota_results = [True, False, False]
+    fake_status = MagicMock(remaining=1, used=19, limit=20)
+    mock_state = {"final_answer": "A", "retry_count": 0, "fact_check": {"verdict": "OK"}}
+
+    notifier = MagicMock()
+    notifier.is_empty = True
+    notifier.send.return_value = {}
+
+    with (
+        patch("src.scheduler.answer", return_value=mock_state) as mock_answer,
+        patch("src.scheduler.build_default_notifier", return_value=notifier),
+        patch("src.scheduler.has_quota_for_question", side_effect=has_quota_results),
+        patch("src.scheduler.get_flash_quota_status", return_value=fake_status),
+    ):
+        result = run_scheduled(watchlist_path=wl, dry_run=True)
+
+    # 1 件だけ処理
+    assert mock_answer.call_count == 1
+    assert result == 1

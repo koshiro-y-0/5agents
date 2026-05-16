@@ -51,6 +51,15 @@ class Settings(BaseSettings):
     # --- Loop guard (D エージェントの差し戻し上限) ---
     max_factcheck_retries: int = Field(default=2)
 
+    # --- 無料枠ガード (Gemini Flash の 1 日上限) ---
+    # 2026/5 時点の実測: gemini-2.5-flash = 20 RPD (free tier)
+    # 1 質問あたり A + E = 2 calls 消費するので、無料枠で約 10 質問/日が現実的上限
+    gemini_flash_daily_limit: int = Field(default=20)
+    # 警告を出し始める使用率 (0.0-1.0)
+    quota_warn_threshold: float = Field(default=0.7)
+    # 強い警告 (赤色) を出す使用率
+    quota_danger_threshold: float = Field(default=0.9)
+
     @property
     def is_development(self) -> bool:
         return self.app_env == "development"

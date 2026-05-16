@@ -10,6 +10,7 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agents._prompt_utils import build_system_prompt
 from src.agents.state import AgentState
 from src.llm import AgentRole, get_llm
 from src.memory.vector_store import QAMemory
@@ -48,7 +49,7 @@ def run_finalizer(state: AgentState) -> AgentState:
 
     response = llm.invoke(
         [
-            SystemMessage(content=_SYSTEM_PROMPT),
+            SystemMessage(content=build_system_prompt(_SYSTEM_PROMPT)),
             HumanMessage(
                 content=(
                     f"# ユーザーの質問\n{state['question']}\n\n"

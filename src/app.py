@@ -17,6 +17,7 @@ from src.agents.orchestrator import answer
 from src.agents.state import AgentState
 from src.config import get_settings
 from src.memory.logger import RunLogger
+from src.quota import FLASH_CALLS_PER_QUESTION, get_flash_quota_status
 
 st.set_page_config(page_title="5agents", page_icon="🤖", layout="wide")
 
@@ -46,6 +47,25 @@ with st.sidebar:
         st.warning("Tavily 未設定 — Researcher は Web 検索なしで動作")
     else:
         st.success("Tavily API key OK")
+
+    # --- Gemini Flash 無料枠の使用状況 ---
+    st.divider()
+    st.caption("**無料枠 (Gemini Flash, 1日)**")
+    _quota = get_flash_quota_status()
+    _quota_text = (
+        f"{_quota.used} / {_quota.limit} 使用 "
+        f"(残り {_quota.remaining} calls = "
+        f"あと約 {_quota.remaining // FLASH_CALLS_PER_QUESTION} 質問)"
+    )
+    if _quota.level == "exhausted":
+        st.error(f"❌ {_quota_text}\n本日の無料枠を使い切りました。明日まで質問不可。")
+    elif _quota.level == "danger":
+        st.error(f"🚨 {_quota_text}\n上限間近です。質問を控えるか明日に回してください。")
+    elif _quota.level == "warn":
+        st.warning(f"⚠️ {_quota_text}\nもう少しで上限です。")
+    else:
+        st.caption(f"✅ {_quota_text}")
+    st.progress(min(_quota.pct, 1.0))
 
     st.divider()
     st.caption("**役割 → モデル**")
@@ -140,6 +160,23 @@ def _render_chat_tab() -> None:
             else:
                 st.markdown(msg["content"])
 
+    # 入力前の Quota ガード
+    quota = get_flash_quota_status()
+    if not quota.can_run_question:
+        st.error(
+            f"❌ Gemini Flash の本日無料枠 ({quota.used}/{quota.limit}) "
+            f"がもう質問 1 件分 ({FLASH_CALLS_PER_QUESTION} calls) を満たせません。\n\n"
+            "明日 00:00 (PT) リセット後に再開してください。"
+        )
+        # チャット入力を無効化
+        st.chat_input("本日の無料枠を使い切りました", disabled=True)
+        return
+    if quota.level == "danger":
+        st.warning(
+            f"🚨 残り {quota.remaining} calls (≒ {quota.remaining // FLASH_CALLS_PER_QUESTION} 質問)。"
+            "次の質問で上限に達する可能性があります。"
+        )
+
     # 入力
     if prompt := st.chat_input("質問を入力..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -187,9 +224,29 @@ def _render_dashboard_tab() -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("実行回数", f"{total_runs}")
-    col2.metric("NG 率", f"{(ng_count / total_runs * 100) if total_runs else 0:.1f}%")
+    col2.metric(
+        "要確認率",
+        f"{(ng_count / total_runs * 100) if total_runs else 0:.1f}%",
+        help=(
+            "Fact-checker が分析に問題 (根拠不足・矛盾・日付不整合など) を検出し、"
+            "差し戻し上限 (デフォルト 2 回) 内に解消できなかった割合。\n\n"
+            "**システムは止まらず最終回答は生成されている**が、回答内の「リスク・反論」"
+            "セクションで Fact-checker の指摘が反映されている。\n\n"
+            "予測系・推測を含む質問では本質的に NG になりやすい (例: 「来期の予測」)。"
+        ),
+    )
     col3.metric("平均所要時間", f"{avg_duration:.1f} 秒")
-    col4.metric("平均リトライ", f"{avg_retries:.2f}")
+    col4.metric(
+        "平均リトライ",
+        f"{avg_retries:.2f}",
+        help="1 質問あたりの Fact-checker → Analyst 差し戻し回数の平均",
+    )
+
+    # 凡例
+    st.caption(
+        "💡 **凡例**: `OK` = Fact-checker が問題なしと判定した状態 / "
+        "`NG (要確認)` = 差し戻し後も問題が残った状態 (最終回答に注釈付きで反映)"
+    )
 
     st.divider()
 
@@ -206,7 +263,7 @@ def _render_dashboard_tab() -> None:
             labels={"date": "日付", "count": "実行数"},
         )
         fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # --- エージェント別合計所要時間 (横棒) ---
     agent_totals = rlog.agent_total_durations(last_n_days=days)
@@ -224,7 +281,7 @@ def _render_dashboard_tab() -> None:
         )
         fig2.update_layout(height=300, yaxis={"categoryorder": "total ascending"})
         fig2.update_traces(texttemplate="%{text} 回", textposition="outside")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     st.divider()
 
@@ -232,18 +289,21 @@ def _render_dashboard_tab() -> None:
     st.subheader("🗂️ 実行履歴")
     display_df = df_window.copy()
     display_df["所要時間 (秒)"] = (display_df["duration_ms"].fillna(0) / 1000).round(1)
+    # 判定値を人間に分かる形に変換
+    display_df["判定"] = display_df["final_verdict"].map(
+        {"OK": "✅ OK", "NG": "⚠️ 要確認 (NG)"}
+    ).fillna(display_df["final_verdict"])
     display_df = display_df[
-        ["started_at", "question", "final_verdict", "retry_count", "所要時間 (秒)", "error"]
+        ["started_at", "question", "判定", "retry_count", "所要時間 (秒)", "error"]
     ].rename(
         columns={
             "started_at": "実行時刻",
             "question": "質問",
-            "final_verdict": "判定",
             "retry_count": "リトライ",
             "error": "エラー",
         }
     )
-    st.dataframe(display_df, use_container_width=True, height=400)
+    st.dataframe(display_df, width="stretch", height=400)
 
 
 # --- タブ構成 ---

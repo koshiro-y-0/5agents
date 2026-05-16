@@ -21,6 +21,7 @@ from pathlib import Path
 from src.agents.orchestrator import answer
 from src.config import get_settings
 from src.notifications.notifier import build_default_notifier
+from src.quota import get_flash_quota_status, has_quota_for_question
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,26 @@ def run_scheduled(watchlist_path: Path | None = None, dry_run: bool = False) -> 
         logger.warning("通知チャネル未設定。--dry-run でない実行は意味が薄いため、stdout にも出力します")
 
     logger.info("定期実行開始: %d 件", len(questions))
+    skipped = 0
     for i, q in enumerate(questions, start=1):
+        # --- Quota guard: 事前に Gemini Flash 残量をチェック ---
+        if not has_quota_for_question():
+            status = get_flash_quota_status()
+            msg = (
+                f"Quota guard: Gemini Flash 残り {status.remaining} calls "
+                f"(必要 2 calls) — 質問 {i}/{len(questions)} をスキップ"
+            )
+            logger.warning(msg)
+            skip_body = f"質問: {q}\n{msg}\n本日の残り全質問を中断します。"
+            if not dry_run and not notifier.is_empty:
+                notifier.send(f"[5agents] ⚠️ 上限到達 ({i}/{len(questions)})", skip_body)
+            else:
+                print(f"=== [SKIP] {msg} ===")
+                print(skip_body)
+            # 1 件目で当たれば全件スキップしたほうがコスト的にも明示的
+            skipped = len(questions) - i + 1
+            break
+
         logger.info("[%d/%d] %s", i, len(questions), q[:50])
         try:
             state = answer(q)
@@ -97,8 +117,12 @@ def run_scheduled(watchlist_path: Path | None = None, dry_run: bool = False) -> 
             results = notifier.send(title, report)
             logger.info("通知結果: %s", results)
 
-    logger.info("定期実行完了: %d 件", len(questions))
-    return len(questions)
+    processed = len(questions) - skipped
+    logger.info(
+        "定期実行完了: 処理 %d 件 / スキップ %d 件 (合計 %d 件)",
+        processed, skipped, len(questions),
+    )
+    return processed
 
 
 def main() -> int:

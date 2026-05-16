@@ -181,6 +181,20 @@ class RunLogger:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_today_model_call_count(self, model_name: str) -> int:
+        """指定モデル名の今日 (UTC 日付ベース) の呼び出し回数を返す.
+
+        Gemini Flash 無料枠などの **日次クォータ事前チェック** に使用する。
+        agent_calls.model に保存された exact 一致でカウント。
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM agent_calls "
+                "WHERE DATE(started_at) = DATE('now') AND model = ?",
+                (model_name,),
+            ).fetchone()
+        return int(row["c"] or 0) if row else 0
+
     def daily_run_counts(self, last_n_days: int = 14) -> list[dict]:
         """直近 N 日分の日別実行数 (新しい順 → 古い順に並べ替えて返却)."""
         with self._connect() as conn:
