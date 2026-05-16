@@ -34,11 +34,32 @@ class Settings(BaseSettings):
     tavily_api_key: str = Field(default="", description="Tavily API key")
 
     # --- 通知 (Phase 4, 任意) ---
-    line_notify_token: str = Field(default="", description="LINE Notify token")
+    line_notify_token: str = Field(default="", description="LINE Notify token (廃止予定)")
     discord_webhook_url: str = Field(default="", description="Discord Webhook URL")
+
+    # --- LINE Messaging API (Phase 5: LINE 連携, 任意) ---
+    # 取得: https://developers.line.biz/ (Messaging API channel 作成)
+    line_channel_secret: str = Field(default="", description="LINE Channel Secret (署名検証用)")
+    line_channel_access_token: str = Field(
+        default="", description="LINE Channel Access Token (push 送信用)"
+    )
+    # 自分の LINE User ID をカンマ区切りで指定 (例: 'Uxxxx,Uyyyy')
+    # 設定された User ID 以外からのメッセージは無視される (公開時の安全装置)
+    line_allowed_user_ids: str = Field(default="")
+    # webhook 受信用 FastAPI の listen ポート
+    webhook_port: int = Field(default=8080)
+    # LINE Flex Message の「詳細を見る」ボタンが開く URL
+    streamlit_base_url: str = Field(default="http://localhost:8501")
 
     # --- 定期実行 (Phase 4) ---
     watchlist_file: Path = Field(default=Path("./watchlist.txt"))
+
+    @property
+    def line_allowed_user_id_list(self) -> list[str]:
+        """カンマ区切りの allowed_user_ids をリストに正規化."""
+        return [
+            uid.strip() for uid in self.line_allowed_user_ids.split(",") if uid.strip()
+        ]
 
     # --- Persistence ---
     chroma_persist_dir: Path = Field(default=Path("./data/chroma_db"))
