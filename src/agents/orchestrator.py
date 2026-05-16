@@ -27,7 +27,7 @@ from src.agents.finalizer import run_finalizer
 from src.agents.researcher import run_researcher
 from src.agents.state import AgentState
 from src.config import get_settings
-from src.llm import AgentRole
+from src.llm import AgentRole, get_model_name
 from src.memory.logger import RunLogger
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,6 @@ logger = logging.getLogger(__name__)
 # 計測時の現在 run の参照 (answer() 内で書き換え)
 _CURRENT_RUN_ID: str | None = None
 _CURRENT_RUN_LOGGER: RunLogger | None = None
-
-# メインモデルを使うロール
-_MAIN_MODEL_ROLES = {AgentRole.RESEARCHER, AgentRole.ANALYST, AgentRole.FINALIZER}
 
 
 def _route_after_factcheck(state: AgentState) -> Literal["analyst", "finalizer"]:
@@ -62,8 +59,8 @@ def _instrument(
     role: AgentRole,
 ) -> Callable[[AgentState], AgentState]:
     """エージェント関数を SQLite ロガー付きでラップする."""
-    settings = get_settings()
-    model = settings.gemini_model_main if role in _MAIN_MODEL_ROLES else settings.gemini_model_sub
+    # 役割ごとのモデル名を解決して agent_calls.model に記録
+    model = get_model_name(role)
 
     def wrapped(state: AgentState) -> AgentState:
         started = time.perf_counter()
