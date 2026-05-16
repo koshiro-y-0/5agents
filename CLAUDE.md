@@ -24,17 +24,23 @@
 ```
 ユーザー質問
    ↓
-[A] Researcher  (Gemini 2.5 Flash)        Web検索・情報収集
+[A] Researcher  (Gemini 2.5 Flash       / Google)  Web検索・情報収集
    ↓
-[B] Analyst     (Gemini 2.5 Flash)        数値処理・分析・予測
+[B] Analyst     (Gemini 2.5 Flash-Lite  / Google)  数値処理・分析・予測
    ↓
-[C] Critic      (Gemini 2.5 Flash-Lite)   反論・別視点
+[C] Critic      (Llama 3.3 70B          / Groq)    反論・別視点
    ↓
-[D] Fact-checker(Gemini 2.5 Flash-Lite)   根拠・矛盾・誇張の検出
+[D] Fact-checker(Llama 3.3 70B          / Groq)    根拠・矛盾・誇張の検出
    │  ← NG なら B へ差し戻し（最大 N 回ループ）
    ↓
-[E] Finalizer   (Gemini 2.5 Flash)        統合・整形して出力
+[E] Finalizer   (Gemini 2.5 Flash       / Google)  統合・整形して出力
 ```
+
+### マルチプロバイダー設計の意図
+
+- **Gemini Flash 消費を削減**: A/E のみ Flash (2 calls/質問) → 無料枠 20 RPD で 10 質問/日可
+- **視点の多様性**: C/D を Meta 系 LLM にすることで、Analyst (Gemini) の出力を **異なる学習系統で検証** できる。同じ系統 LLM だけだと「Gemini が出した分析を Gemini が批判する」状態でバイアス検出が弱い
+- **障害耐性**: Gemini 障害時も C/D は動作。逆も同様
 
 **重要**: D の差し戻しループには必ず上限（デフォルト 2 回）を設けること。無限ループはコストが青天井になる。
 
@@ -46,9 +52,10 @@
 |---|---|---|---|
 | 言語 | Python | 3.11+ | LangGraph / LangChain エコシステムの標準 |
 | パッケージ管理 | [uv](https://docs.astral.sh/uv/) | 0.11+ | pip 比 10〜100倍高速。pyproject.toml + lockfile |
-| LLM | Gemini 2.5 Flash / Flash-Lite | API | 無料枠が大きい、マルチエージェント構成に十分な性能 |
+| LLM (主) | Gemini 2.5 Flash / Flash-Lite | API | A/B/E 用。Google AI Studio で取得、無料枠あり |
+| LLM (副) | Groq Llama 3.3 70B | API | C/D 用。Groq の無料枠 14,400 RPD で Flash 制限を回避 + 視点多様性確保 |
 | エージェント基盤 | [LangGraph](https://langchain-ai.github.io/langgraph/) | 0.2+ | 状態を持つグラフベースのオーケストレーション。差し戻しループ表現が容易 |
-| LLM 呼び出し | langchain-google-genai | 2.0+ | Gemini 公式統合 |
+| LLM 呼び出し | langchain-google-genai / langchain-groq | 2.0+ / 1.1+ | プロバイダー別の公式統合 |
 | Web 検索 | [Tavily](https://tavily.com/) | 0.5+ | AI エージェント向けに最適化、無料枠 1,000 req/月 |
 | UI | [Streamlit](https://streamlit.io/) | 1.40+ | Python 単独で完結、プロトタイプから本番まで対応 |
 | 記憶 / 検索 | [ChromaDB](https://www.trychroma.com/) | 0.5+ | 軽量で local-first、外部依存なし |
@@ -267,9 +274,13 @@ gh pr merge --squash --delete-branch
 
 ### コスト管理
 
-- **無料枠の意識を常に持つ**。Gemini 2.5 Flash は 1 日 250 req、5 エージェントで 1 質問 = 5 req → 50 質問/日が上限
-- 開発中は `gemini-2.5-flash-lite` の比率を増やす
+- **無料枠の意識を常に持つ**。2026/5 時点での実測:
+  - `gemini-2.5-flash`: **20 RPD** (1 日 20 リクエスト) — 一番厳しい制限
+  - `gemini-2.5-flash-lite`: 1,000 RPD
+  - `llama-3.3-70b-versatile` (Groq): 14,400 RPD (実質無制限)
+- 案 X-1 (現行) で 1 質問あたりの Flash 消費は 2 calls (A + E) → **無料枠で 10 質問/日** が現実的上限
 - ループ系のテスト中は **必ずダミーモード**（`APP_ENV=development` で API を呼ばない経路）を用意
+- 新しいエージェントを追加する場合は **「どのプロバイダーの無料枠を消費するか」を必ず明示**し、Flash 枠を消費するなら他ロールの Flash 利用を見直す
 
 ### プロンプト設計
 
@@ -277,15 +288,20 @@ gh pr merge --squash --delete-branch
 - 出力は可能な限り **構造化**（JSON か Markdown の決まったセクション）
 - Fact-checker (D) の出力は **`{"verdict": "OK" | "NG", "issues": [...]}`** の固定フォーマットにする（オーケストレーターが判定に使う）
 
-### モデル選択
+### モデル選択 (案 X-1 — 2026/5 確定)
 
-| 役割 | 推奨モデル | 理由 |
-|---|---|---|
-| A Researcher | Flash | 検索結果の要約に十分な性能、コストも許容 |
-| B Analyst | Flash | 数値推論には Flash の精度が必要 |
-| C Critic | Flash-Lite | 反論生成は軽量モデルでも質を保てる |
-| D Fact-checker | Flash-Lite | 構造化判定のためコスト優先 |
-| E Finalizer | Flash | 最終出力の品質が UX に直結 |
+| 役割 | 推奨モデル | プロバイダー | 理由 |
+|---|---|---|---|
+| A Researcher | gemini-2.5-flash | Google | Web 検索結果の日本語要約 + 出典管理に強い |
+| B Analyst | gemini-2.5-flash-lite | Google | Researcher との文体連続性 + Flash 枠温存 |
+| C Critic | llama-3.3-70b-versatile | Groq | Meta 系で別視点、temperature=0.7 で発散的 |
+| D Fact-checker | llama-3.3-70b-versatile | Groq | Llama は JSON 出力安定、B (Gemini系) と独立な検証視点 |
+| E Finalizer | gemini-2.5-flash | Google | 日本語 Markdown 整形品質が UX 直結 |
+
+**変更時の注意**:
+- A や E を Groq 系に変えると日本語の自然さが落ちる可能性 (要検証)
+- C/D を Gemini 系に戻すと **同系統バイアス**で Critic/Fact-checker の意義が弱まる (避ける)
+- B の Flash-Lite → Flash 昇格は Flash 枠を即圧迫するので、Tier 1 移行とセットで判断
 
 ### Web 検索（Tavily）
 

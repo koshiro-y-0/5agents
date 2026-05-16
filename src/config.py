@@ -19,10 +19,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- LLM ---
+    # --- LLM: Google Gemini (A Researcher / B Analyst / E Finalizer) ---
     google_api_key: str = Field(default="", description="Gemini API key")
     gemini_model_main: str = Field(default="gemini-2.5-flash")
     gemini_model_sub: str = Field(default="gemini-2.5-flash-lite")
+
+    # --- LLM: Groq Llama (C Critic / D Fact-checker) ---
+    # Groq の無料枠は 14,400 RPD と豊富。Gemini Flash の 20 RPD 制限を回避するため
+    # 「視点の多様性」も兼ねて C/D を Meta 系 LLM に分散する。
+    groq_api_key: str = Field(default="", description="Groq API key")
+    groq_model: str = Field(default="llama-3.3-70b-versatile")
 
     # --- Web search ---
     tavily_api_key: str = Field(default="", description="Tavily API key")
