@@ -32,6 +32,14 @@ from src.line.formatter import build_detail_url, split_for_line
 from src.line.handler import LineHandler
 from src.quota import get_flash_quota_status, has_quota_for_question
 
+# uvicorn は自身のアクセスログだけ出すため、アプリ側 (logger.info 等) が
+# 何も出ない問題がある。INFO 以上を stdout/stderr に出すよう明示的に basicConfig。
+# launchd の StandardOutPath / StandardErrorPath で logs/webhook.log に流れる。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="5agents LINE Webhook")

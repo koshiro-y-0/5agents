@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import logging
 
+import certifi
 from linebot.v3.messaging import (
     ApiClient,
     Configuration,
@@ -37,7 +38,12 @@ class LineHandler:
 
     def __init__(self, channel_secret: str, channel_access_token: str) -> None:
         self._channel_secret = channel_secret
-        self._config = Configuration(access_token=channel_access_token)
+        # macOS の Python.org 版だと urllib3 が CA 証明書を見つけられず
+        # SSLCertVerificationError が出るため、certifi の cacert.pem を明示指定する
+        self._config = Configuration(
+            access_token=channel_access_token,
+            ssl_ca_cert=certifi.where(),
+        )
 
     # --- 署名検証 ---
 

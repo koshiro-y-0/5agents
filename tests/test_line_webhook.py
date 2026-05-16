@@ -147,8 +147,11 @@ def test_webhook_ignores_non_text_messages(client) -> None:  # type: ignore[no-u
 def test_webhook_returns_503_when_channel_not_configured(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from src import config
 
-    monkeypatch.delenv("LINE_CHANNEL_SECRET", raising=False)
-    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    # 開発者ローカルの .env に実値が入っていることがあるので、
+    # delenv ではなく setenv("") で明示的に空文字列で上書きする
+    # (pydantic-settings の優先順位: env > .env)
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "")
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "")
     config.get_settings.cache_clear()
 
     client = TestClient(app)
