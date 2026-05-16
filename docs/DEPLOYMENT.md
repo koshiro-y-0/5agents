@@ -8,24 +8,62 @@
 
 ## 案 A: Mac ローカル + launchd ⭐推奨
 
-**メリット**: コスト 0、外部サービス契約不要、データもローカル
-**デメリット**: Mac を起動しっぱなしにする必要がある
+**メリット**:
+- コスト 0 円、外部サービス契約不要、データ・API キーは完全ローカル
+- ログイン即起動 → ブラウザのブックマークで一発アクセス
+- クラッシュしても launchd が自動再起動 (KeepAlive)
 
-### 1. ウォッチリスト作成
+**デメリット**:
+- Mac を起動・ログインしている時間にのみ動作
+- 他デバイス (スマホ等) からはアクセス不可 (→ LINE 連携時に案 B 検討)
+
+### ワンコマンドセットアップ (推奨)
+
+リポジトリに含まれる install スクリプトで **Streamlit 常駐 + 毎朝 9:00 のスケジューラ** を 1 コマンドで登録できます。
 
 ```bash
 cd ~/Desktop/5agents
-cp watchlist.example.txt watchlist.txt
-# エディタで watchlist.txt を編集 (1 行 1 質問)
+bash scripts/install-autostart.sh --with-scheduler
 ```
 
-### 2. 通知の設定 (任意)
+実行内容:
+1. `~/Library/LaunchAgents/com.5agents.streamlit.plist` を生成して `launchctl load` (Streamlit 常駐)
+2. `~/Library/LaunchAgents/com.5agents.scheduler.plist` を生成して `launchctl load` (毎朝 9:00)
+3. `launchctl list` で登録状況を表示
+4. ブラウザ用 URL と停止コマンドを案内
 
-#### LINE Notify
+成功すると **`http://localhost:8501`** に Streamlit が常駐します。ブラウザでブックマーク登録すれば次から快適。
 
-1. https://notify-bot.line.me/my/ にアクセス
-2. 「トークンを発行する」→ トークン名と通知先トークルームを選択
-3. 発行されたトークンを `.env` の `LINE_NOTIFY_TOKEN=` に書き込み
+> **ヒント**: `bash scripts/install-autostart.sh` (引数なし) なら Streamlit のみ。scheduler を後から足したくなったら `--with-scheduler` で再実行 OK (冪等)。
+
+### 動作確認
+
+```bash
+# 登録された launchd ジョブを確認
+launchctl list | grep 5agents
+# → -    0    com.5agents.streamlit
+# → -    0    com.5agents.scheduler
+
+# Streamlit のログを追う
+tail -f ~/Desktop/5agents/logs/streamlit.log
+
+# ブラウザで http://localhost:8501 を開いて UI 表示
+```
+
+### よくある運用コマンド
+
+```bash
+# Streamlit を一時停止
+launchctl unload ~/Library/LaunchAgents/com.5agents.streamlit.plist
+
+# 再度起動
+launchctl load ~/Library/LaunchAgents/com.5agents.streamlit.plist
+
+# 完全アンインストール (Streamlit + scheduler 両方)
+bash scripts/install-autostart.sh --uninstall
+```
+
+### 通知の設定 (任意、scheduler 用)
 
 #### Discord Webhook
 
@@ -34,75 +72,35 @@ cp watchlist.example.txt watchlist.txt
 3. 名前と通知先チャンネルを設定 → URL をコピー
 4. `.env` の `DISCORD_WEBHOOK_URL=` に書き込み
 
-両方設定すれば両方に届きます。片方だけ・どちらも未設定でも動作します（未設定時は標準出力のみ）。
+> ⚠️ **LINE Notify は 2025/3/31 でサービス終了済み**。LINE 連携が欲しい場合は LINE Messaging API (Webhook) が必要で、これは **案 B (Cloudflare Tunnel + Access)** と組み合わせて別途設計します。
 
-### 3. 動作確認 (dry-run)
+### scheduler の動作確認 (dry-run)
 
 ```bash
 uv run python -m src.scheduler --dry-run
 ```
 
 → ウォッチリストの全質問が順次処理され、結果が標準出力に表示されます（通知は送られない）。
+無料枠が足りない場合は冒頭でガードが効いてスキップされます。
 
-### 4. launchd で毎朝 9:00 に自動実行
+### plist の構成内訳
 
-`~/Library/LaunchAgents/com.5agents.scheduler.plist` を作成:
+`scripts/com.5agents.streamlit.plist.template` がテンプレート。install スクリプトが以下を置換して生成:
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.5agents.scheduler</string>
+| プレースホルダ | 置換内容 (例) |
+|---|---|
+| `{{PROJECT_DIR}}` | `/Users/yamadakoshiro/Desktop/5agents` |
+| `{{UV_PATH}}` | `/opt/homebrew/bin/uv` |
 
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/uv</string>
-        <string>run</string>
-        <string>python</string>
-        <string>-m</string>
-        <string>src.scheduler</string>
-    </array>
+主な設定:
+- `RunAtLoad`: ログイン時に自動起動
+- `KeepAlive`: クラッシュしても再起動
+- `ThrottleInterval=10`: 再起動ループ防止
+- `--server.address 127.0.0.1`: localhost のみ listen (外部公開しない)
+- `--server.headless true`: ブラウザを自動で開かない (ポップアップ抑制)
+- `--server.fileWatcherType none`: ファイル変更 reload を無効化 (リソース節約)
 
-    <key>WorkingDirectory</key>
-    <string>/Users/yamadakoshiro/Desktop/5agents</string>
-
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>9</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
-
-    <key>StandardOutPath</key>
-    <string>/Users/yamadakoshiro/Desktop/5agents/logs/scheduler.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/yamadakoshiro/Desktop/5agents/logs/scheduler.error.log</string>
-</dict>
-</plist>
-```
-
-ログディレクトリを作成して登録:
-
-```bash
-mkdir -p ~/Desktop/5agents/logs
-launchctl load ~/Library/LaunchAgents/com.5agents.scheduler.plist
-```
-
-確認:
-
-```bash
-launchctl list | grep 5agents
-```
-
-停止・再読込:
-
-```bash
-launchctl unload ~/Library/LaunchAgents/com.5agents.scheduler.plist
-launchctl load ~/Library/LaunchAgents/com.5agents.scheduler.plist
-```
+> ✏️ 開発中にコード変更を即反映したい時は plist を unload して `uv run streamlit run src/app.py` で手動起動してください。
 
 ---
 
