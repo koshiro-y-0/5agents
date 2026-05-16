@@ -11,6 +11,7 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agents._prompt_utils import build_system_prompt
 from src.agents.state import AgentState
 from src.llm import AgentRole, get_llm
 from src.memory.vector_store import QAMemory
@@ -30,7 +31,10 @@ _SYSTEM_PROMPT = """あなたは熟練したリサーチアシスタントです
 - 数値・日付は引用元のまま正確に転記する
 - 矛盾する情報があれば両論併記する
 - 過去の Q&A が提供されている場合、「先週」「前回」など時系列を意識した質問では、
-  過去回答を参照して差分・変化を強調する"""
+  過去回答を参照して差分・変化を強調する
+- **検索結果の記事日付が現在より大幅に古い場合 (半年以上前など)、必ず冒頭で
+  「現時点で最新の情報が見つからなかったため、〇〇年〇月時点の情報を要約しています」
+  と明示すること。** これにより Fact-checker が時系列の不整合を検出できる"""
 
 
 def run_researcher(state: AgentState) -> AgentState:
@@ -56,7 +60,7 @@ def run_researcher(state: AgentState) -> AgentState:
     llm = get_llm(AgentRole.RESEARCHER)
     response = llm.invoke(
         [
-            SystemMessage(content=_SYSTEM_PROMPT),
+            SystemMessage(content=build_system_prompt(_SYSTEM_PROMPT)),
             HumanMessage(
                 content=(
                     f"# ユーザーの質問\n{question}\n\n"

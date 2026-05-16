@@ -9,6 +9,7 @@ from typing import cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agents._prompt_utils import build_system_prompt
 from src.agents.state import AgentState, FactCheckResult
 from src.llm import AgentRole, get_llm
 
@@ -21,6 +22,13 @@ Analyst の分析と Critic の批判を読み、以下を検出してくださ�
 2. 出典と矛盾する記述
 3. 過度な誇張・断定 (「絶対」「必ず」など)
 4. 数値や日付の不整合
+5. **時系列の不整合 (最重要)**:
+   - 「先日」「直近」「今期」「最新」等の相対表現が、システム冒頭の本日の日付と
+     大きくずれた日付の出来事を指していないか
+   - 例: 本日が 2026年5月16日 のときに、「先日の出来事 (2024年11月)」のような
+     1 年以上前のことを「先日」と表現していたら NG
+   - 例: 未来の日付の出来事が「既に起きた」と書かれていたら NG
+   - 検索結果に最新情報がなかった場合は「○○年○月時点の情報」と明示されているか確認
 
 判定結果を **JSON のみ** で返してください (Markdown のコードフェンスは不要)。
 フォーマット:
@@ -31,7 +39,7 @@ Analyst の分析と Critic の批判を読み、以下を検出してくださ�
 }
 
 - 問題が 0 件なら verdict=OK, issues=[]
-- 軽微な誇張表現は OK、明らかな根拠不足や矛盾は NG"""
+- 軽微な誇張表現は OK、明らかな根拠不足や矛盾、特に時系列の不整合は NG"""
 
 
 def _parse_json_response(text: str) -> FactCheckResult:
@@ -73,7 +81,7 @@ def run_factchecker(state: AgentState) -> AgentState:
     llm = get_llm(AgentRole.FACT_CHECKER)
     response = llm.invoke(
         [
-            SystemMessage(content=_SYSTEM_PROMPT),
+            SystemMessage(content=build_system_prompt(_SYSTEM_PROMPT)),
             HumanMessage(
                 content=(
                     f"# ユーザーの質問\n{state['question']}\n\n"
