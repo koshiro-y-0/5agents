@@ -23,6 +23,7 @@ LINE Console の Webhook URL に
 from __future__ import annotations
 
 import logging
+import sys
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
@@ -33,11 +34,14 @@ from src.line.handler import LineHandler
 from src.quota import get_flash_quota_status, has_quota_for_question
 
 # uvicorn は自身のアクセスログだけ出すため、アプリ側 (logger.info 等) が
-# 何も出ない問題がある。INFO 以上を stdout/stderr に出すよう明示的に basicConfig。
-# launchd の StandardOutPath / StandardErrorPath で logs/webhook.log に流れる。
+# 何も出ない問題がある。INFO 以上を明示的に basicConfig。
+# stream=sys.stdout を指定しないとデフォルトは stderr になり、launchd の
+# StandardErrorPath (webhook.error.log) に流れてしまい運用ログが分散する。
+# stdout に固定することで StandardOutPath (webhook.log) に集約される。
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
 )
 
 logger = logging.getLogger(__name__)
