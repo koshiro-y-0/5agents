@@ -1,8 +1,18 @@
 # 5agents
 
-> 5体構成のマルチエージェント AI 調査システム — Research → Analysis → Critique → Fact-check → Finalize
+> 5体構成のマルチエージェント AI **汎用調査システム** — Research → Analysis → Critique → Fact-check → Finalize
 
-調査・分析・予測を自動化する個人専用 AI システム。Gemini 2.5 Flash と LangGraph を組み合わせて、5つの専門エージェントが連携して質問に回答します。
+「**何かを調べてほしい**」という質問に対し、5 つの専門エージェントが連携して、Web 検索・分析・反論・事実確認・統合を経た **根拠付きの回答** を返す個人専用 AI システム。
+Gemini 2.5 Flash と LangGraph で構築。トピックは不問 (AI 動向 / テック業界 / 株・金融 / 日常の疑問 など何でも)。
+
+### 使い方の例
+
+| あなたの質問 | 5 エージェントの動き |
+|---|---|
+| 「最近 1 週間の AI 業界の重要ニュースは?」 | Tavily で Web 検索 → 要約 → 分析 → 別視点追加 → 事実確認 → 統合 |
+| 「Anthropic と OpenAI のモデル比較」 | 同上 (Web 中心の調査フロー) |
+| 「NVDA の業績見通しと主要リスク」 | 上記に加え **yfinance が自動で最新株価・PER 等を Analyst に注入** |
+| 「Python 3.13 の主な新機能」 | 通常の調査フロー (yfinance はスキップ) |
 
 ## エージェント構成
 
@@ -19,11 +29,12 @@
 ## 技術スタック
 
 - **LLM**: Gemini 2.5 Flash API (Google)
-- **オーケストレーション**: [LangGraph](https://langchain-ai.github.io/langgraph/)
-- **UI**: [Streamlit](https://streamlit.io/)
-- **記憶・検索**: [ChromaDB](https://www.trychroma.com/)
-- **ログ永続化**: SQLite
-- **データ取得**: yfinance / [Tavily](https://tavily.com/)
+- **オーケストレーション**: [LangGraph](https://langchain-ai.github.io/langgraph/) — 差し戻しループ含む状態管理
+- **UI**: [Streamlit](https://streamlit.io/) — チャット + 📊 ダッシュボード (タブ切替)
+- **Web 検索**: [Tavily](https://tavily.com/) — Researcher エージェントが Web を探索
+- **記憶**: [ChromaDB](https://www.trychroma.com/) — 過去 Q&A をベクトル検索して「先週と比べて」等の文脈質問に対応
+- **観測ログ**: SQLite — 質問・エージェント所要時間・コスト傾向を記録
+- **株価データ (任意・自動)**: yfinance — 質問に銘柄名/ティッカーが含まれた **時だけ** 起動して株価を注入
 - **パッケージ管理**: [uv](https://docs.astral.sh/uv/)
 
 ## セットアップ
