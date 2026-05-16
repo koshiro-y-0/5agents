@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  5agents Streamlit auto-start (macOS launchd)
+
+  目的: Mac にログインしたら自動的に Streamlit が起動し、ブラウザの
+        http://localhost:8501 でいつでも使える状態にする。
+
+  - {{PROJECT_DIR}} : 5agents プロジェクトのフルパス (例 /Users/koshiro/Desktop/5agents)
+  - {{UV_PATH}}     : uv 実行ファイルの絶対パス (例 /opt/homebrew/bin/uv)
+
+  install-autostart.sh が上記プレースホルダを置換して
+  ~/Library/LaunchAgents/com.5agents.streamlit.plist を生成する。
+
+  停止したい場合:
+      launchctl unload ~/Library/LaunchAgents/com.5agents.streamlit.plist
+  完全削除:
+      rm ~/Library/LaunchAgents/com.5agents.streamlit.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.5agents.streamlit</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{UV_PATH}}</string>
+        <string>run</string>
+        <string>streamlit</string>
+        <string>run</string>
+        <string>src/app.py</string>
+        <!-- ブラウザを自動で開かない (常駐するため毎ログイン時のポップアップを抑制) -->
+        <string>--server.headless</string>
+        <string>true</string>
+        <!-- localhost のみ listen (外部公開しない、案 A の前提) -->
+        <string>--server.address</string>
+        <string>127.0.0.1</string>
+        <string>--server.port</string>
+        <string>8501</string>
+        <!-- ファイル変更で自動 reload しない (常駐用、リソース節約) -->
+        <string>--server.fileWatcherType</string>
+        <string>none</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_DIR}}</string>
+
+    <!-- ログイン時に起動 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- クラッシュしても再起動 (常駐保証) -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 再起動の最小間隔: 短すぎる再起動ループを防ぐ -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_DIR}}/logs/streamlit.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_DIR}}/logs/streamlit.error.log</string>
+
+    <!-- PATH を Homebrew にも通す (uv run が依存解決で必要なケースあり) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
