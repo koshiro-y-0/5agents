@@ -2,12 +2,14 @@
 # 5agents auto-start インストーラ (macOS launchd)
 #
 # 使い方:
-#   bash scripts/install-autostart.sh            # Streamlit のみインストール
-#   bash scripts/install-autostart.sh --with-scheduler  # Scheduler も同時登録
-#   bash scripts/install-autostart.sh --uninstall        # アンインストール
+#   bash scripts/install-autostart.sh                    # Streamlit のみ
+#   bash scripts/install-autostart.sh --with-scheduler   # + 毎朝 9:00 scheduler
+#   bash scripts/install-autostart.sh --with-line        # + LINE webhook (FastAPI :8080)
+#   bash scripts/install-autostart.sh --all              # 全部入り
+#   bash scripts/install-autostart.sh --uninstall        # 全部削除
 #
 # 役割:
-#   1. scripts/com.5agents.streamlit.plist.template の {{...}} を実環境で置換
+#   1. scripts/*.plist.template の {{...}} を実環境で置換
 #   2. ~/Library/LaunchAgents/ に配置
 #   3. launchctl load で常駐開始
 #
@@ -21,6 +23,9 @@ STREAMLIT_LABEL="com.5agents.streamlit"
 STREAMLIT_PLIST="$LAUNCH_AGENTS_DIR/$STREAMLIT_LABEL.plist"
 SCHEDULER_LABEL="com.5agents.scheduler"
 SCHEDULER_PLIST="$LAUNCH_AGENTS_DIR/$SCHEDULER_LABEL.plist"
+WEBHOOK_LABEL="com.5agents.webhook"
+WEBHOOK_PLIST="$LAUNCH_AGENTS_DIR/$WEBHOOK_LABEL.plist"
+WEBHOOK_PORT="${WEBHOOK_PORT:-8080}"
 
 UV_PATH="$(command -v uv || echo /opt/homebrew/bin/uv)"
 
@@ -107,11 +112,32 @@ PLIST
     ok "$SCHEDULER_LABEL を登録しました (毎朝 9:00 実行)"
 }
 
+install_webhook() {
+    log "LINE Webhook auto-start を準備..."
+    log "  WEBHOOK_PORT = $WEBHOOK_PORT"
+
+    mkdir -p "$LAUNCH_AGENTS_DIR" "$PROJECT_DIR/logs"
+
+    unload_if_loaded "$WEBHOOK_PLIST"
+
+    sed -e "s|{{PROJECT_DIR}}|$PROJECT_DIR|g" \
+        -e "s|{{UV_PATH}}|$UV_PATH|g" \
+        -e "s|{{PORT}}|$WEBHOOK_PORT|g" \
+        "$PROJECT_DIR/scripts/com.5agents.webhook.plist.template" \
+        > "$WEBHOOK_PLIST"
+
+    launchctl load "$WEBHOOK_PLIST"
+    ok "$WEBHOOK_LABEL を登録しました (localhost:$WEBHOOK_PORT)"
+    log "次に Tailscale Funnel で 8080 を公開し、LINE Console の Webhook URL を設定してください"
+    log "詳細は docs/LINE_SETUP.md を参照"
+}
+
 uninstall_all() {
     log "全 launchd ジョブをアンインストール..."
     unload_if_loaded "$STREAMLIT_PLIST"
     unload_if_loaded "$SCHEDULER_PLIST"
-    rm -f "$STREAMLIT_PLIST" "$SCHEDULER_PLIST"
+    unload_if_loaded "$WEBHOOK_PLIST"
+    rm -f "$STREAMLIT_PLIST" "$SCHEDULER_PLIST" "$WEBHOOK_PLIST"
     ok "削除完了"
 }
 
@@ -129,9 +155,20 @@ case "${1:-}" in
     --uninstall)
         uninstall_all
         ;;
+    --all)
+        install_streamlit
+        install_scheduler
+        install_webhook
+        verify_install
+        ;;
     --with-scheduler)
         install_streamlit
         install_scheduler
+        verify_install
+        ;;
+    --with-line)
+        install_streamlit
+        install_webhook
         verify_install
         ;;
     "")
@@ -140,7 +177,7 @@ case "${1:-}" in
         ;;
     *)
         err "不明な引数: $1"
-        echo "Usage: $0 [--with-scheduler|--uninstall]"
+        echo "Usage: $0 [--all|--with-scheduler|--with-line|--uninstall]"
         exit 1
         ;;
 esac

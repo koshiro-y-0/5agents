@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  5agents LINE Webhook auto-start (macOS launchd)
+
+  目的: Mac ログイン時に FastAPI (uvicorn) を常駐させ、LINE からの webhook を受信する。
+        Tailscale Funnel が 8080 を公開し、LINE は HTTPS で投げてくる。
+
+  - {{PROJECT_DIR}} : 5agents プロジェクトのフルパス
+  - {{UV_PATH}}     : uv 実行ファイルの絶対パス
+  - {{PORT}}        : listen ポート (デフォルト 8080)
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.5agents.webhook</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{UV_PATH}}</string>
+        <string>run</string>
+        <string>uvicorn</string>
+        <string>src.line.webhook:app</string>
+        <!-- localhost のみ listen (Tailscale Funnel が外部公開する経路を 1 つに限定) -->
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>{{PORT}}</string>
+        <string>--log-level</string>
+        <string>info</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_DIR}}</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_DIR}}/logs/webhook.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_DIR}}/logs/webhook.error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
