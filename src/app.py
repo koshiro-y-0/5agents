@@ -33,18 +33,28 @@ with st.sidebar:
     settings = get_settings()
 
     if not settings.google_api_key or settings.google_api_key.startswith("your_"):
-        st.error("`.env` の GOOGLE_API_KEY が未設定です")
+        st.error("`.env` の GOOGLE_API_KEY が未設定です (A/B/E が動作不可)")
     else:
         st.success("Gemini API key OK")
+
+    if not settings.groq_api_key or settings.groq_api_key.startswith("your_"):
+        st.error("`.env` の GROQ_API_KEY が未設定です (C/D が動作不可)")
+    else:
+        st.success("Groq API key OK")
 
     if not settings.tavily_api_key or settings.tavily_api_key.startswith("your_"):
         st.warning("Tavily 未設定 — Researcher は Web 検索なしで動作")
     else:
         st.success("Tavily API key OK")
 
-    st.write(f"**メインモデル**: `{settings.gemini_model_main}`")
-    st.write(f"**サブモデル**: `{settings.gemini_model_sub}`")
-    st.write(f"**Fact-check 上限**: `{settings.max_factcheck_retries}` 回")
+    st.divider()
+    st.caption("**役割 → モデル**")
+    st.caption(f"A Researcher : `{settings.gemini_model_main}` (Google)")
+    st.caption(f"B Analyst    : `{settings.gemini_model_sub}` (Google)")
+    st.caption(f"C Critic     : `{settings.groq_model}` (Groq)")
+    st.caption(f"D Fact-check : `{settings.groq_model}` (Groq)")
+    st.caption(f"E Finalizer  : `{settings.gemini_model_main}` (Google)")
+    st.caption(f"Fact-check 差し戻し上限: `{settings.max_factcheck_retries}` 回")
 
     if st.button("会話をクリア"):
         st.session_state.messages = []
