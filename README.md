@@ -59,6 +59,16 @@ cp .env.example .env
 uv run streamlit run src/app.py
 ```
 
+### Mac で「開いただけで使える」状態にする (任意)
+
+ログイン時に Streamlit を自動起動し、`http://localhost:8501` をブックマークするだけで使える状態にできます。
+
+```bash
+bash scripts/install-autostart.sh --with-scheduler
+```
+
+詳細は [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) の「案 A」を参照。
+
 ### APIキーの取得
 
 - **Gemini API key**: [Google AI Studio](https://aistudio.google.com/app/apikey)
