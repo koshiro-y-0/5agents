@@ -48,5 +48,8 @@ logs/
 # Streamlit
 .streamlit/secrets.toml
 
+# ユーザー個別のウォッチリスト (watchlist.example.txt から各自コピーして編集)
+watchlist.txt
+
 # Jupyter
 .ipynb_checkpoints/
