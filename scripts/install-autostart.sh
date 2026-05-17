@@ -4,7 +4,7 @@
 # 使い方:
 #   bash scripts/install-autostart.sh                    # Streamlit のみ
 #   bash scripts/install-autostart.sh --with-scheduler   # + 毎朝 9:00 scheduler
-#   bash scripts/install-autostart.sh --with-line        # + LINE webhook (FastAPI :8080)
+#   bash scripts/install-autostart.sh --with-line        # + LINE webhook (FastAPI :8080) + Tailscale Funnel
 #   bash scripts/install-autostart.sh --all              # 全部入り
 #   bash scripts/install-autostart.sh --uninstall        # 全部削除
 #
@@ -12,6 +12,12 @@
 #   1. scripts/*.plist.template の {{...}} を実環境で置換
 #   2. ~/Library/LaunchAgents/ に配置
 #   3. launchctl load で常駐開始
+#
+# 登録される launchd ジョブ:
+#   com.5agents.streamlit  : Streamlit UI (常駐, 127.0.0.1:8501)
+#   com.5agents.scheduler  : 毎朝 9:00 に scheduler 実行 (--with-scheduler / --all)
+#   com.5agents.webhook    : FastAPI webhook (常駐, 127.0.0.1:8080) (--with-line / --all)
+#   com.5agents.funnel     : Tailscale Funnel (ログイン時に --bg 8080 実行) (--with-line / --all)
 #
 # 既存の plist があれば一旦 unload してから上書きするので冪等。
 
@@ -26,8 +32,11 @@ SCHEDULER_PLIST="$LAUNCH_AGENTS_DIR/$SCHEDULER_LABEL.plist"
 WEBHOOK_LABEL="com.5agents.webhook"
 WEBHOOK_PLIST="$LAUNCH_AGENTS_DIR/$WEBHOOK_LABEL.plist"
 WEBHOOK_PORT="${WEBHOOK_PORT:-8080}"
+FUNNEL_LABEL="com.5agents.funnel"
+FUNNEL_PLIST="$LAUNCH_AGENTS_DIR/$FUNNEL_LABEL.plist"
 
 UV_PATH="$(command -v uv || echo /opt/homebrew/bin/uv)"
+TAILSCALE_PATH="$(command -v tailscale || echo /usr/local/bin/tailscale)"
 
 # --- ヘルパー ---
 log()  { printf '\033[36m[install]\033[0m %s\n' "$*"; }
@@ -128,8 +137,33 @@ install_webhook() {
 
     launchctl load "$WEBHOOK_PLIST"
     ok "$WEBHOOK_LABEL を登録しました (localhost:$WEBHOOK_PORT)"
-    log "次に Tailscale Funnel で 8080 を公開し、LINE Console の Webhook URL を設定してください"
-    log "詳細は docs/LINE_SETUP.md を参照"
+}
+
+install_funnel() {
+    log "Tailscale Funnel auto-restart を準備..."
+    log "  TAILSCALE_PATH = $TAILSCALE_PATH"
+    log "  PORT           = $WEBHOOK_PORT"
+
+    if [ ! -x "$TAILSCALE_PATH" ]; then
+        warn "tailscale CLI が見つかりません: $TAILSCALE_PATH"
+        warn "Tailscale 公式版 (.pkg) をインストールしてから再実行してください"
+        warn "詳細: docs/LINE_SETUP.md"
+        return 1
+    fi
+
+    mkdir -p "$LAUNCH_AGENTS_DIR" "$PROJECT_DIR/logs"
+
+    unload_if_loaded "$FUNNEL_PLIST"
+
+    sed -e "s|{{PROJECT_DIR}}|$PROJECT_DIR|g" \
+        -e "s|{{TAILSCALE_BIN}}|$TAILSCALE_PATH|g" \
+        -e "s|{{PORT}}|$WEBHOOK_PORT|g" \
+        "$PROJECT_DIR/scripts/com.5agents.funnel.plist.template" \
+        > "$FUNNEL_PLIST"
+
+    launchctl load "$FUNNEL_PLIST"
+    ok "$FUNNEL_LABEL を登録しました (Funnel ポート $WEBHOOK_PORT を公開)"
+    log "ログイン毎に 'tailscale funnel --bg $WEBHOOK_PORT' が自動実行されます"
 }
 
 uninstall_all() {
@@ -137,7 +171,8 @@ uninstall_all() {
     unload_if_loaded "$STREAMLIT_PLIST"
     unload_if_loaded "$SCHEDULER_PLIST"
     unload_if_loaded "$WEBHOOK_PLIST"
-    rm -f "$STREAMLIT_PLIST" "$SCHEDULER_PLIST" "$WEBHOOK_PLIST"
+    unload_if_loaded "$FUNNEL_PLIST"
+    rm -f "$STREAMLIT_PLIST" "$SCHEDULER_PLIST" "$WEBHOOK_PLIST" "$FUNNEL_PLIST"
     ok "削除完了"
 }
 
@@ -159,6 +194,7 @@ case "${1:-}" in
         install_streamlit
         install_scheduler
         install_webhook
+        install_funnel
         verify_install
         ;;
     --with-scheduler)
@@ -169,6 +205,7 @@ case "${1:-}" in
     --with-line)
         install_streamlit
         install_webhook
+        install_funnel
         verify_install
         ;;
     "")
