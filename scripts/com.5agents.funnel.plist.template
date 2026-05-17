@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  5agents Tailscale Funnel auto-restart (macOS launchd)
+
+  目的:
+    Mac ログイン時に `tailscale funnel --bg 8080` を実行し、
+    LINE Webhook の公開経路を常に立ち上がった状態に保つ。
+
+  仕組み:
+    - Tailscale.app は macOS の Login Items で自動起動する前提
+    - launchd は Tailscale.app より少し遅れて起動するが、tailscaled が
+      準備できていればコマンドは成功する
+    - `tailscale funnel --bg` は冪等 (既に同じ設定がある場合は何もしない)
+      なので、再起動・スリープ復帰のいずれでも安全
+
+  - {{PROJECT_DIR}} : 5agents プロジェクトのフルパス (ログ出力用)
+  - {{TAILSCALE_BIN}}: tailscale CLI の絶対パス (通常 /usr/local/bin/tailscale)
+  - {{PORT}}        : Funnel が public 公開するローカルポート
+
+  停止:
+      launchctl unload ~/Library/LaunchAgents/com.5agents.funnel.plist
+  完全削除:
+      rm ~/Library/LaunchAgents/com.5agents.funnel.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.5agents.funnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{TAILSCALE_BIN}}</string>
+        <string>funnel</string>
+        <string>--bg</string>
+        <string>{{PORT}}</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_DIR}}</string>
+
+    <!-- ログイン時に 1 度だけ起動 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 失敗時 (tailscaled 未起動など) は短時間後に再試行 -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <!-- ProcessType を Background にして CPU/IO 制限を軽くする -->
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!--
+        KeepAlive は付けない:
+        tailscale funnel --bg は登録だけして即座に exit するため、
+        KeepAlive を付けると無限ループになる。RunAtLoad で 1 度実行すれば十分。
+        スリープ復帰時に Funnel が落ちている場合は再ログインで復旧 (or 手動)。
+    -->
+
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_DIR}}/logs/funnel.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_DIR}}/logs/funnel.error.log</string>
+
+    <!-- PATH に Tailscale 標準パスを追加 -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

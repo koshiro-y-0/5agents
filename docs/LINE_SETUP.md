@@ -1,7 +1,7 @@
 # LINE 連携セットアップガイド
 
 > 5agents を LINE で使えるようにする手順。
-> **コードは PR #12 でマージ済みの前提**。ユーザーの環境設定だけをここに集約。
+> **コードはマージ済み**の前提で、ユーザーの環境設定だけをここに集約。
 
 ## 全体構成
 
@@ -15,195 +15,280 @@
                                    [LINE Push API] → [あなたの LINE]
 ```
 
-## やることリスト (約 30 分)
+## やることリスト (約 40 分)
 
 | # | 作業 | 所要 |
 |---|---|---|
-| 1 | Tailscale をインストールしてアカウント作成 | 5 分 |
-| 2 | Tailscale Funnel を有効化 | 3 分 |
-| 3 | LINE Business ID + Messaging API channel 作成 | 10 分 |
-| 4 | `.env` に Channel Secret / Token / 自分の User ID を設定 | 5 分 |
-| 5 | FastAPI を launchd で常駐化 | 1 分 |
-| 6 | Tailscale Funnel で 8080 を公開 | 1 分 |
+| 1 | **公式版 Tailscale (.pkg)** をインストール | 5 分 |
+| 2 | Tailscale Funnel + HTTPS Certificates を有効化 | 5 分 |
+| 3 | `tailscale funnel --bg 8080` で公開経路を確立 | 2 分 |
+| 4 | LINE Business ID + Messaging API channel 作成 | 10 分 |
+| 5 | `.env` に Channel Secret / Token / 自分の User ID を設定 | 5 分 |
+| 6 | FastAPI webhook + Funnel auto-restart を launchd で常駐化 | 1 分 |
 | 7 | LINE Console に Webhook URL を登録 + 検証 | 3 分 |
 | 8 | 動作確認 (LINE で質問を送る) | 1 分 |
 
 ---
 
-## Step 1: Tailscale インストール
+## ⚠️ 重要: App Store 版ではなく公式 .pkg 版を使う
 
-### 1-1. アカウント作成 + Mac クライアント install
+Mac App Store 版 Tailscale は **CLI が使えない**（サンドボックス制約で `tailscale funnel` 等が動かない）ため、必ず **公式 .pkg 版** を使ってください。
 
-1. https://tailscale.com/download/mac から **Mac App Store 版**をインストール
-2. 起動 → 「Sign in」→ **Google アカウントでログイン**（後で他デバイス追加時もこのアカウント）
-3. 「Connect」ボタンを押して接続を確立
+**症状**: App Store 版だと `tailscale --version` で
+```
+Tailscale/BundleIdentifiers.swift:41: Fatal error: The current bundleIdentifier is unknown to the registry
+```
+というエラーが出ます。
+
+## Step 1: 公式版 Tailscale (.pkg) をインストール
+
+### 1-1. アカウント作成 + Mac にインストール
+
+1. https://pkgs.tailscale.com/stable/#tailscale-pkg から **`.pkg`** ファイルをダウンロード
+   - または https://tailscale.com/download/mac → **「Download for macOS (.pkg)」**
+2. ダウンロードした `.pkg` をダブルクリックでインストール
+3. 起動 → **「Log in」** → Google または GitHub アカウントでサインイン
 4. メニューバーに Tailscale アイコンが現れる
+5. **「Connect」** をクリック → 接続を確立
 
-### 1-2. このマシンの Tailscale ドメインを確認
+### 1-2. CLI が使えることを確認
 
-メニューバーアイコンをクリック → 上部にこのマシンの名前 (例: `koshiro-4`) と Tailscale IP (例: `100.x.x.x`) が表示される。
+```bash
+which tailscale
+# → /usr/local/bin/tailscale
 
-「Open admin console」を選択して https://login.tailscale.com/admin/machines を開き、**Magic DNS** で自動付与されるドメインを確認:
+tailscale --version
+# → 1.96.x or 1.98.x など正常表示
+
+tailscale status
+# → 自分のマシンが表示される
 ```
-koshiro-4.tail-xxxx.ts.net
-```
-これがあなたのマシンの公開予定ドメインです。
 
-## Step 2: Tailscale Funnel を有効化
+### 1-3. ログイン時に自動起動する設定
 
-Funnel はデフォルト無効。Admin Console で許可する必要あり。
+- メニューバー Tailscale → **「Preferences...」** → **「Start Tailscale on login」** にチェック
+- または System Settings → General → Login Items → Tailscale.app を追加
 
-### 2-1. Admin Console で Funnel を許可
+### 1-4. このマシンのドメインを確認
+
+ブラウザで https://login.tailscale.com/admin/machines を開き、登録されているマシン (例: `koshiro-1`) と Tailnet 名 (例: `tail6a31ed.ts.net`) を確認。
+
+→ 完全な公開ドメイン名は **`{machine}.{tailnet}.ts.net`** (例: `koshiro-1.tail6a31ed.ts.net`)
+
+## Step 2: Tailscale Funnel + HTTPS Certificates を有効化
+
+### 2-1. ACL で Funnel 機能を許可
 
 1. https://login.tailscale.com/admin/acls/file を開く
-2. ACL JSON の中に次の `nodeAttrs` を追加 (既存があればマージ):
+2. ACL JSON に **`nodeAttrs`** セクションを追加 (既存にあればマージ):
 
 ```json
 {
+  "acls": [
+    {"action": "accept", "src": ["*"], "dst": ["*:*"]}
+  ],
   "nodeAttrs": [
     {
       "target": ["autogroup:member"],
       "attr":   ["funnel"]
     }
+  ],
+  "ssh": [
+    {"action": "check", "src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot", "root"]}
   ]
 }
 ```
 
-3. 「Save」をクリック
+3. **「Save」** をクリック → 緑のトーストが出れば成功
 
-### 2-2. ローカルで Funnel を起動 (一旦テスト)
+### 2-2. HTTPS Certificates を有効化（重要・忘れがち）
+
+LINE は HTTPS 必須。Tailscale は Let's Encrypt で自動取得しますが、**この機能はデフォルト無効**です。
+
+1. https://login.tailscale.com/admin/dns を開く
+2. ページ最下部までスクロール → **「HTTPS Certificates」** セクション
+3. **「Enable HTTPS」** をクリック → 確認ダイアログで同意
+
+> ✅ ボタンが「**Disable HTTPS...**」と表示されていれば、既に有効化済み
+
+### 2-3. デバイスごとに Funnel を opt-in
+
+1. ターミナルで `tailscale funnel --bg 8080` を一度実行
+2. 「Funnel is not enabled on your tailnet. To enable, visit: https://login.tailscale.com/f/funnel?node=xxxxx」と URL が出る
+3. その URL をブラウザで開く → **「Enable Funnel for this machine」** をクリック
+4. もう一度 `tailscale funnel --bg 8080` → 今度は `Available on the internet:` と出るはず
+
+## Step 3: Tailscale Funnel を起動
 
 ```bash
-# まず Streamlit / scheduler が動いていることを確認
-launchctl list | grep 5agents
-
-# Funnel を手動起動 (テスト用)
 tailscale funnel --bg 8080
 ```
 
-→ `https://koshiro-4.tail-xxxx.ts.net` がアクセス可能になる (FastAPI は次のステップで起動)。
+期待出力:
+```
+Available on the internet:
+https://koshiro-1.tail6a31ed.ts.net/
+|-- proxy http://127.0.0.1:8080
+Funnel started and running in the background.
+```
 
-> 一旦止めるには `tailscale funnel --https=443 off`。本番運用では `launchd` で常駐化します (Step 6 で説明)。
+### 3-1. 証明書取得を明示的に実行 (推奨)
 
-## Step 3: LINE Messaging API channel 作成
+初回は証明書 propagation に時間がかかることがあります。明示的に取得しておくと安心：
 
-### 3-1. LINE Business ID 作成
+```bash
+tailscale cert koshiro-1.tail6a31ed.ts.net
+# → Wrote public cert / Wrote private key と出れば OK
+```
+
+### 3-2. 公開疎通テスト (重要)
+
+```bash
+# Mac 内部ルーティングを迂回して公開 IP 経由で curl
+PUBLIC_IP=$(dig +short koshiro-1.tail6a31ed.ts.net @8.8.8.8 | head -1)
+curl --resolve koshiro-1.tail6a31ed.ts.net:443:${PUBLIC_IP} https://koshiro-1.tail6a31ed.ts.net/health -v 2>&1 | tail -10
+```
+
+期待: `HTTP/2 200` と `{"status":"ok"}` (※webhook が後で起動するので、この時点では `502 Bad Gateway` でも OK)
+
+### 3-3. もし TLS エラー (SSL_ERROR_SYSCALL) が出たら
+
+Tailscale 再起動後によく起きる。**完全リセット**で直る:
+
+```bash
+tailscale funnel --https=443 off
+tailscale logout
+tailscale up   # ブラウザで再ログイン
+tailscale funnel --bg 8080
+sleep 240      # 4 分待つ (証明書の propagation)
+# 再度 curl で確認
+```
+
+## Step 4: LINE Messaging API channel 作成
+
+### 4-1. LINE Business ID 有効化
 
 1. https://account.line.biz/login にアクセス
-2. **個人 LINE アカウントでログイン** (新規 ID 作成は不要、既存 LINE アカウントを連携)
-3. 案内に従って LINE Business ID を有効化
+2. **「LINE アカウントでログイン」** で個人 LINE と連携
+3. 規約同意 → LINE Business ID が有効化される
 
-### 3-2. Provider 作成
+### 4-2. Provider 作成
 
 1. https://developers.line.biz/console/ にアクセス
-2. 「Create a new provider」→ 名前は任意 (例: `koshiro-personal`)
+2. **「Create a new provider」** → 名前は任意 (例: `koshiro-personal`)
 
-### 3-3. Messaging API channel 作成
+### 4-3. Messaging API channel 作成
 
-1. 作成した Provider の中で「Create a new channel」→ **「Messaging API」**を選択
+1. Provider の中で **「Create a new channel」** → **「Messaging API」**
 2. 入力項目:
-   - **Channel name**: `5agents` (任意)
-   - **Channel description**: `個人用 5 エージェント調査ボット` (任意)
-   - **Category**: 「個人」「テクノロジー」など
-   - **Subcategory**: 任意
+   - **Channel name**: `5agents`
+   - **Category**: 個人
+   - **Subcategory**: その他
    - その他は規約同意して作成
 
-### 3-4. Channel Secret と Channel Access Token を取得
+### 4-4. Channel Secret と Channel Access Token を取得
 
-1. channel 設定画面 → **「Basic settings」**タブ:
-   - **Channel secret** をコピー (後で `.env` に貼る)
-2. **「Messaging API」**タブ:
-   - 一番下の「Channel access token」→ **「Issue」**をクリック → 表示された long-lived token をコピー
+**⚠️ どちらもチャットに貼らず、メモ帳など安全な場所に一時保管**
 
-> ⚠️ **両方ともチャットには絶対貼らない**。`.env` に直接書き込んでください。
+#### Channel Secret
+1. **「Basic settings」** タブ → 下部の **「Channel secret」** をコピー
 
-### 3-5. 不要な機能をオフ (推奨)
+#### Channel Access Token
+1. **「Messaging API」** タブ → 一番下の **「Channel access token (long-lived)」** → **「Issue」** をクリック
+2. 発行された長い文字列をコピー
 
-「Messaging API」タブで以下をオフ:
-- **Auto-reply messages**: オフ (5agents が返すので、自動応答と二重になる)
-- **Greeting messages**: お好みで
+> 💡 上記が表示されない場合、LINE Official Account Manager 側で API が未有効。Manager → Messaging API → 「Messaging APIを利用する」を先に有効化してください
 
-「Messaging API」タブの「LINE Official Account features」リンクから設定変更可能。
+### 4-5. 自動応答をオフ (重要)
 
-## Step 4: .env に LINE 設定を追記
+LINE Official Account Manager (https://manager.line.biz) で:
+1. 左メニュー **「応答設定」**
+2. **「応答メッセージ」** を **オフ** に切替
+3. **「あいさつメッセージ」** も任意でオフ
+
+これで 5agents の回答と自動応答の二重送信を防げます。
+
+## Step 5: `.env` に LINE 設定を追記
 
 ```bash
 cd ~/Desktop/5agents
 open -e .env
 ```
 
-以下を追記 (`Channel secret` / `Channel access token` は Step 3-4 で取得した値):
+ファイル末尾に追記:
 
 ```
-LINE_CHANNEL_SECRET=（Step 3-4 で取得した Channel Secret を貼る）
-LINE_CHANNEL_ACCESS_TOKEN=（Step 3-4 で取得した Channel Access Token を貼る）
-LINE_ALLOWED_USER_IDS=（Step 7 で取得するので一旦空のままで OK）
+# --- LINE Messaging API ---
+LINE_CHANNEL_SECRET=（メモした Channel Secret）
+LINE_CHANNEL_ACCESS_TOKEN=（メモした Channel Access Token）
+# 自分の User ID は Step 7 で取得して書き換えるので一旦空のまま
+LINE_ALLOWED_USER_IDS=
 WEBHOOK_PORT=8080
 STREAMLIT_BASE_URL=http://localhost:8501
 ```
 
-## Step 5: FastAPI を launchd で常駐化
+保存後、長さチェックで設定が反映されたか確認:
+
+```bash
+grep -E "^(LINE_CHANNEL_SECRET|LINE_CHANNEL_ACCESS_TOKEN)=" .env | awk -F= '{
+  if (length($2) > 20) print $1 "= ✅ 長さ" length($2) "文字"
+  else print $1 "= ❌ 値が不正"
+}'
+```
+
+期待: 両方とも `✅ 長さ XX 文字` と表示。
+
+## Step 6: FastAPI webhook + Tailscale Funnel を launchd で常駐化
 
 ```bash
 cd ~/Desktop/5agents
 bash scripts/install-autostart.sh --with-line
 ```
 
-これで以下 2 つが登録される:
-- `com.5agents.streamlit` (既存) localhost:8501
-- `com.5agents.webhook` (新規) localhost:8080
+これで 3 つの launchd ジョブが登録されます:
+- `com.5agents.streamlit` : Streamlit UI (常駐)
+- `com.5agents.webhook`   : FastAPI webhook (常駐, 127.0.0.1:8080)
+- `com.5agents.funnel`    : Tailscale Funnel (ログイン時に `tailscale funnel --bg 8080` 実行)
 
 確認:
 ```bash
 launchctl list | grep 5agents
-tail -f logs/webhook.log
-# → "Uvicorn running on http://127.0.0.1:8080" が出れば成功
-```
+# → 4 つ表示 (scheduler は --with-scheduler 付けたときのみ)
 
-簡易疎通テスト:
-```bash
+# webhook が起動しているか
+sleep 5
 curl http://localhost:8080/health
 # → {"status":"ok"}
 ```
 
-## Step 6: Tailscale Funnel を launchd で常駐化 (任意だが推奨)
-
-Step 2-2 で起動した `tailscale funnel --bg 8080` はそのまま使えますが、Mac 再起動後も自動で立ち上がるよう launchd に登録すると安心。
-
-```bash
-tailscale funnel --bg 8080
-# `--bg` はそのままにすると Tailscale が次回起動時に自動復元する
-```
-
-Tailscale 自体が macOS の Login Items に登録されているので、Mac ログイン時に Tailscale が起動 → Funnel 設定が復元される流れ。
-
-## Step 7: LINE Console に Webhook URL を登録
+## Step 7: LINE Console に Webhook URL 登録 + 自分の User ID 取得
 
 ### 7-1. Webhook URL の設定
 
-1. https://developers.line.biz/console/ → 作成した channel
-2. 「Messaging API」タブ → 「Webhook settings」
-3. **Webhook URL** に以下を入力:
+1. https://developers.line.biz/console/ → 作成した channel → **「Messaging API」** タブ
+2. **「Webhook URL」** 欄に以下を入力:
    ```
-   https://koshiro-4.tail-xxxx.ts.net/line/webhook
+   https://koshiro-1.tail6a31ed.ts.net/line/webhook
    ```
-   (Step 1-2 で確認したあなたの Tailscale ドメイン)
-4. 「Update」→ 「Verify」をクリック → **Success** が出れば成功 ✅
-5. **Use webhook** を **オン** にする
+3. **「Update」** → **「Verify (検証)」** をクリック → **「Success (成功)」** が出れば疎通 OK ✅
+4. **「Use webhook (Webhookの利用)」** を **オン** に
 
-### 7-2. 自分の User ID を取得
+> ⚠️ **「Webhook URLに無効なホストが指定されています」と出たら、Step 2-2 (HTTPS Certificates) や Step 3-2 (証明書取得) が完了していない可能性大**
 
-最初のメッセージ送信時にログから取得します。
+### 7-2. ボットを LINE 友だち追加
 
-1. 作成したボットの **「Messaging API」**タブ → 一番上の **QR コード** を LINE で読み取って友だち追加
-2. LINE で何でもいいのでメッセージを送る (例: 「test」)
-3. Mac で:
+1. 「Messaging API」タブの上部 **QR コード** を LINE アプリで読み取り → 友だち追加
+
+### 7-3. 自分の User ID を取得
+
+1. LINE で 5agents に何でもいいので 1 つメッセージ送信（例: `test`）
+2. Mac で:
    ```bash
-   tail -20 ~/Desktop/5agents/logs/webhook.log | grep "user_id="
+   tail -30 ~/Desktop/5agents/logs/webhook.log | grep "user_id="
    ```
-4. `user_id=Uxxxxxxxxxxxxxxx text=test...` の `Uxxxxxxxxxxxxxxx` が **あなたの LINE User ID**
+3. `user_id=Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` の **U + 32 文字** が自分の LINE User ID
 
-### 7-3. .env を更新
+### 7-4. `.env` を更新
 
 ```bash
 open -e ~/Desktop/5agents/.env
@@ -211,10 +296,10 @@ open -e ~/Desktop/5agents/.env
 
 `LINE_ALLOWED_USER_IDS=` の行を取得した User ID で更新:
 ```
-LINE_ALLOWED_USER_IDS=Uxxxxxxxxxxxxxxx
+LINE_ALLOWED_USER_IDS=Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-webhook を再起動:
+webhook を再起動して `.env` を反映:
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.5agents.webhook.plist
 launchctl load ~/Library/LaunchAgents/com.5agents.webhook.plist
@@ -222,39 +307,90 @@ launchctl load ~/Library/LaunchAgents/com.5agents.webhook.plist
 
 ## Step 8: 動作確認
 
-LINE で 5agents ボットにメッセージを送る (例: 「IONQ の最新の決算」)。
+LINE で 5agents に質問を送る (例: `NVDA の最新の業績見通しを教えて`)。
 
 期待される挙動:
-1. **数秒以内**: 「🤔 5 エージェントが調査・分析中...」が即返信される
-2. **1〜2 分後**: メッセージ 1 (結論 + 根拠) が届く
-3. **続けて**: メッセージ 2 (リスク・反論 + 出典) が届く
+1. **数秒以内**: 「🤔 5 エージェントが調査・分析中...」が即返信
+2. **1〜2 分後**: 「結論+根拠」のメッセージが届く
+3. **続けて**: 「リスク・反論+出典」のメッセージが届く
 4. **最後に**: 「📊 Streamlit で詳細を見る」ボタン付き Flex Message
-   (このボタンは Mac でしか開けない `http://localhost:8501` を指す)
 
-完成です 🎉
+🎉 ここまで来れば LINE 連携完成です。
 
 ---
 
+## 運用ノート
+
+### Mac の電源状態と動作可否
+
+| Mac の状態 | LINE 使える？ |
+|---|---|
+| 起動中 (ログイン済み) | ✅ |
+| クラムシェルモード (外部モニター + 電源接続) | ✅ |
+| 通常スリープ (ノート PC でフタ閉じる) | ❌ ネットワーク停止 |
+| シャットダウン | ❌ |
+
+24/7 で使いたいなら **クラムシェル運用**、または **VPS にデプロイ** を検討してください。
+
+### Funnel が止まったときの復旧
+
+スリープ復帰や Tailscale 再起動後に Funnel が止まる場合があります:
+
+```bash
+# 現状確認
+tailscale funnel status
+# → "No serve config" なら Funnel 停止中
+
+# 復旧
+tailscale funnel --bg 8080
+
+# それでも繋がらない場合はリセット
+tailscale logout
+tailscale up
+tailscale funnel --bg 8080
+sleep 240   # 4 分待つ
+```
+
+### ログの確認
+
+```bash
+# webhook の通常運用ログ (LINE 受信履歴等)
+tail -f logs/webhook.log
+
+# webhook のエラーログ
+tail -f logs/webhook.error.log
+
+# Funnel の launchd ログ
+tail -f logs/funnel.log
+tail -f logs/funnel.error.log
+
+# Streamlit のログ
+tail -f logs/streamlit.log
+```
+
 ## トラブルシューティング
 
-| 症状 | 確認方法・対策 |
+| 症状 | 原因と対策 |
 |---|---|
-| LINE Console の Verify が失敗 | `curl https://your-domain.ts.net/line/webhook -X POST` で 403 か 503 が返るか確認。`tailscale funnel status` で 8080 が公開されているか。 |
-| メッセージを送っても返事なし | `tail -f logs/webhook.log` でリクエストが届いているか確認。`LINE_ALLOWED_USER_IDS` が間違っていると静かに無視される。 |
-| Push メッセージが届かない | `Channel Access Token` が正しいか再確認。有効期限切れの可能性 (long-lived token は通常切れないが) |
-| 上限到達メッセージが頻発する | Gemini 無料枠 20 RPD を消費している。Streamlit のダッシュボードで使用量を確認 |
-| FastAPI が起動しない | `tail logs/webhook.error.log` で詳細確認。`uv sync` し忘れ or .env 未設定が多い |
+| LINE Console の Verify が「無効なホスト」 | Step 2-2 HTTPS Certificates 未有効化 or Step 3-2 証明書未取得 |
+| Verify が Timeout | webhook が起動していない (`curl http://localhost:8080/health` で確認) |
+| Verify は成功するが LINE 送信に応答なし | `LINE_ALLOWED_USER_IDS` が間違っている (許可外は静かに無視) |
+| 応答が来てもエラーで終わる (LINE には何も届かない) | SSL 証明書エラーの可能性 (`tail logs/webhook.error.log`) |
+| 上限到達メッセージが頻発 | Gemini Flash 無料枠 20 RPD 消費、Streamlit で残量確認 |
+| FastAPI が起動しない | `tail logs/webhook.error.log`、`.env` 未設定や uv sync 忘れが多い |
+| `tailscale: command not found` | App Store 版を使ってる。公式 .pkg 版に切替 (Step 1) |
+| `Tailscale is stopped.` | Tailscale.app が起動してない、メニューバーから起動 |
 
 ## セキュリティの要点
 
 このセットアップで守られているもの:
 - ✅ LINE 署名検証で偽 webhook を即破棄 (`X-Line-Signature` チェック)
 - ✅ 許可ユーザー以外の User ID は静かに無視 (個人ボットを露呈しない)
-- ✅ Tailscale Funnel が公開する経路は **8080 ポートのみ**、他のローカルサービスは公開されない
-- ✅ Gemini Quota guard が同時に効くので、攻撃者が大量送信しても API 課金は発生しない (上限到達で停止)
+- ✅ Tailscale Funnel が公開する経路は **8080 ポートのみ**
+- ✅ Gemini Quota guard が同時に効くので、攻撃者が大量送信しても API 課金は発生しない
 
 守られていないもの (許容範囲):
-- ⚠️ 公開 URL が知れたら、HTTPS POST で任意リクエストが送られうる
+- ⚠️ 公開 URL が知れたら HTTPS POST で任意リクエストが送られうる
   → 署名検証で全部 403 になるので問題なし
 - ⚠️ Tailscale アカウントのセキュリティに依存
   → 2FA 必須、Tailscale 側で Funnel 解除も即時可能
