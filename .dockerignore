@@ -1,0 +1,66 @@
+# Docker build context を最小化する
+# (pyproject.toml / uv.lock / src/ / huggingface/ / README.md だけがあれば十分)
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Python キャッシュ
+__pycache__/
+*.py[oc]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 仮想環境 (コンテナ内で作り直す)
+.venv/
+venv/
+
+# 環境変数 (HF Secrets で渡す)
+.env
+.env.local
+.env.*
+
+# プロジェクトデータ (Persistent Storage で永続化)
+data/
+*.sqlite
+*.sqlite3
+*.db
+chroma_db/
+.chromadb/
+
+# Logs
+logs/
+*.log
+
+# Streamlit
+.streamlit/
+
+# Tailscale 関連
+*.crt
+*.key
+*.pem
+koshiro-*.tail*.ts.net.*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ローカル限定 (HF では launchd は動かない)
+scripts/install-autostart.sh
+scripts/com.5agents.*.plist*
+
+# テスト・ドキュメント (本番イメージに不要)
+tests/
+docs/
+TODO.md
+watchlist.txt
+watchlist.example.txt
+
+# Jupyter
+.ipynb_checkpoints/
