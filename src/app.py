@@ -21,6 +21,41 @@ from src.quota import FLASH_CALLS_PER_QUESTION, get_flash_quota_status
 
 st.set_page_config(page_title="5agents", page_icon="🤖", layout="wide")
 
+
+# --- 認証ゲート (HF Spaces 等の公開デプロイ用) ---
+# STREAMLIT_PASSWORD が設定されているときだけ有効化。未設定ならローカル開発と同じく素通り。
+def _require_password() -> None:
+    """STREAMLIT_PASSWORD と一致するまで本体 UI をブロックする."""
+    password = get_settings().streamlit_password
+    if not password:
+        # パスワード未設定 → 素通り (ローカル開発 / Private Space 互換)
+        return
+
+    if st.session_state.get("authenticated"):
+        return
+
+    st.title("🔒 5agents")
+    st.caption("このダッシュボードはパスワード保護されています。")
+
+    with st.form("auth_form", clear_on_submit=False):
+        entered = st.text_input("パスワード", type="password")
+        submitted = st.form_submit_button("ログイン")
+
+    if submitted:
+        # 比較は定数時間で (timing attack 対策)
+        import hmac as _hmac
+
+        if _hmac.compare_digest(entered, password):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("パスワードが違います。")
+
+    st.stop()
+
+
+_require_password()
+
 st.title("🤖 5agents — マルチエージェント調査システム")
 st.caption("A: Researcher → B: Analyst → C: Critic → D: Fact-checker → E: Finalizer")
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -61,9 +61,48 @@ class Settings(BaseSettings):
             uid.strip() for uid in self.line_allowed_user_ids.split(",") if uid.strip()
         ]
 
+    # --- UI 認証 (HF Spaces 公開デプロイ用) ---
+    # 設定すると Streamlit 起動時にパスワード入力フォームが出る。未設定だと素通り (ローカル開発互換).
+    streamlit_password: str = Field(default="", description="Streamlit UI のアクセスパスワード")
+
     # --- Persistence ---
-    chroma_persist_dir: Path = Field(default=Path("./data/chroma_db"))
-    sqlite_path: Path = Field(default=Path("./data/agents.sqlite3"))
+    # データの保存ルート。
+    #   - ローカル開発 : ./data (リポジトリ内)
+    #   - HF Spaces    : /data (Persistent Storage マウント点)
+    # chroma_persist_dir / sqlite_path は data_dir からの相対で派生する (未指定時).
+    # 個別パスを明示的に指定したい場合は CHROMA_PERSIST_DIR / SQLITE_PATH を env でセットする
+    # (env 値が空文字なら派生パスにフォールバック).
+    data_dir: Path = Field(
+        default=Path("./data"),
+        validation_alias=AliasChoices("DATA_DIR", "data_dir"),
+        description="永続化ルートディレクトリ",
+    )
+    chroma_persist_dir_override: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "CHROMA_PERSIST_DIR", "chroma_persist_dir_override"
+        ),
+        description="ChromaDB の永続化先 (空なら data_dir/chroma_db)",
+    )
+    sqlite_path_override: str = Field(
+        default="",
+        validation_alias=AliasChoices("SQLITE_PATH", "sqlite_path_override"),
+        description="SQLite ファイルパス (空なら data_dir/agents.sqlite3)",
+    )
+
+    @property
+    def chroma_persist_dir(self) -> Path:
+        """ChromaDB 永続化先. CHROMA_PERSIST_DIR が空なら data_dir/chroma_db."""
+        if self.chroma_persist_dir_override:
+            return Path(self.chroma_persist_dir_override)
+        return self.data_dir / "chroma_db"
+
+    @property
+    def sqlite_path(self) -> Path:
+        """SQLite ログファイル. SQLITE_PATH が空なら data_dir/agents.sqlite3."""
+        if self.sqlite_path_override:
+            return Path(self.sqlite_path_override)
+        return self.data_dir / "agents.sqlite3"
 
     # --- Runtime ---
     app_env: str = Field(default="development")

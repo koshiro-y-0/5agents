@@ -19,6 +19,7 @@ venv/
 .env.*.local
 *.pem
 *.key
+*.crt
 
 # uv
 # (uv.lock should be committed)
