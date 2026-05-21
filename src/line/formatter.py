@@ -9,6 +9,11 @@ Finalizer は ## 結論 → ## 根拠 → ## リスク・反論 → ## 出典 �
 - メッセージ 2: リスク・反論 + 出典
 - どちらも 5000 字を超える場合は冒頭 4900 字 + 末尾に「(続きは詳細から)」
 
+Phase 5 Theme B (装飾):
+- LINE は Markdown を解釈しないので、## **bold** * 等は生で見えて読みにくい
+- `markdown_to_line()` で post-process し、絵文字 + 区切り線 + 「」 + ▪ に変換
+- Streamlit ダッシュボード側は変換しないので綺麗な Markdown を維持
+
 Markdown のセクション抽出は正規表現で行う。Finalizer の system prompt で
 セクション順序を保証しているので、想定通りの構造になっているはず。
 """
@@ -23,6 +28,19 @@ LINE_MAX_TEXT_LENGTH = 5000
 # 安全マージンを取った切り詰め長さ
 _SAFE_TRUNCATE_LENGTH = 4900
 _TRUNCATE_SUFFIX = "\n\n(...続きは「詳細を見る」から)"
+
+# Phase 5 Theme B: LINE 用 H2 セクション装飾の絵文字マップ
+# 見出しに含まれるキーワードでマッチさせる (大小・空白無視)
+_H2_EMOJI_MAP: tuple[tuple[str, str], ...] = (
+    ("結論", "🎯"),
+    ("根拠", "📌"),
+    ("リスク", "⚠️"),
+    ("反論", "💬"),
+    ("出典", "🔗"),
+)
+_H2_EMOJI_DEFAULT = "📝"
+# 区切り線 (LINE 上で視覚的に呼吸できるように)
+_H2_RULE = "━━━━━━━━━━━━━━━"
 
 
 @dataclass(frozen=True)
@@ -83,6 +101,75 @@ def _truncate(text: str) -> str:
     return text[:_SAFE_TRUNCATE_LENGTH] + _TRUNCATE_SUFFIX
 
 
+def _emoji_for_heading(heading_text: str) -> str:
+    """H2 見出しテキストから最適な絵文字を選ぶ.
+
+    例: "結論" → "🎯" / "リスク・反論" → "⚠️" / "その他" → "📝"
+    """
+    normalized = heading_text.replace(" ", "").lower()
+    for keyword, emoji in _H2_EMOJI_MAP:
+        if keyword.lower() in normalized:
+            return emoji
+    return _H2_EMOJI_DEFAULT
+
+
+def _decorate_h2(match: "re.Match[str]") -> str:
+    """`## 結論` → `━━━━━━━ 🎯 結論 ━━━━━━━` のように装飾."""
+    text = match.group(1).strip()
+    emoji = _emoji_for_heading(text)
+    return f"{_H2_RULE}\n{emoji}  {text}\n{_H2_RULE}"
+
+
+def markdown_to_line(md: str) -> str:
+    """Markdown を LINE で読みやすいプレーンテキスト装飾に変換 (Phase 5 Theme B).
+
+    LINE は Markdown を解釈しないため、`## 見出し` や `**bold**` `* item` が
+    そのまま表示されて読みにくい。本関数は以下の変換を適用してプレーンテキスト
+    上で視覚的な階層と強調を再現する:
+
+    | 入力              | 出力                       |
+    |-------------------|----------------------------|
+    | `## 結論`         | `━━━ 🎯 結論 ━━━`           |
+    | `## 根拠`         | `━━━ 📌 根拠 ━━━`           |
+    | `## リスク・反論` | `━━━ ⚠️ リスク・反論 ━━━` |
+    | `## 出典`         | `━━━ 🔗 出典 ━━━`           |
+    | `## その他`       | `━━━ 📝 その他 ━━━`         |
+    | `### サブ`        | `▸ サブ`                    |
+    | `**強調**`        | `「強調」`                  |
+    | `^* 項目`         | `▪ 項目`                    |
+    | `^- 項目`         | `▪ 項目`                    |
+    | `---` (水平線)    | `─────────────`              |
+    | 番号付きリスト    | そのまま                    |
+    | URL 単独          | そのまま (LINE が自動リンク化) |
+
+    Returns:
+        装飾後のテキスト (Markdown 記号は除去・置換済み).
+    """
+    if not md:
+        return md
+
+    text = md
+
+    # 1. 強調 (**bold** → 「bold」). 改行を跨がない最短マッチ.
+    text = re.sub(r"\*\*([^*\n]+?)\*\*", r"「\1」", text)
+
+    # 2. 水平線 --- (3 つ以上の -)
+    text = re.sub(r"^[ \t]*-{3,}[ \t]*$", "─────────────", text, flags=re.MULTILINE)
+
+    # 3. H2 見出し: `## ...` → 区切り線 + 絵文字 + テキスト + 区切り線
+    text = re.sub(r"^##\s+(.+?)\s*$", _decorate_h2, text, flags=re.MULTILINE)
+
+    # 4. H3 見出し: `### ...` → `▸ ...` (H2 より控えめ)
+    text = re.sub(r"^###\s+(.+?)\s*$", r"▸ \1", text, flags=re.MULTILINE)
+
+    # 5. 行頭 bullet (`* item` / `- item`) → `▪ item`
+    #    H2/H3 はすでに変換済みなので干渉しない。
+    #    インデント付き bullet も対応 (例: `  - item` → `  ▪ item`).
+    text = re.sub(r"^([ \t]*)[\*\-]\s+(.+)$", r"\1▪ \2", text, flags=re.MULTILINE)
+
+    return text
+
+
 def split_for_line(markdown: str) -> tuple[str, str]:
     """5agents の Markdown 回答を LINE 用 2 通に分割.
 
@@ -113,6 +200,11 @@ def split_for_line(markdown: str) -> tuple[str, str]:
         msg2_parts.append(f"## 出典\n{sections.sources}")
     msg2 = "\n\n".join(msg2_parts) if msg2_parts else "(リスク・出典セクションは出力なし)"
 
+    # Phase 5 Theme B: LINE 用の装飾 (## → 区切り線+絵文字, ** → 「」, * → ▪)
+    # ※ markdown_to_line を _truncate より先に呼ぶ。装飾後の長さで切り詰める。
+    msg1 = markdown_to_line(msg1)
+    msg2 = markdown_to_line(msg2)
+
     return _truncate(msg1), _truncate(msg2)
 
 
@@ -123,7 +215,11 @@ def _fallback_split(markdown: str) -> tuple[str, str]:
     nearest = markdown.rfind("\n\n", 0, mid + 200)
     if nearest > mid - 500:
         mid = nearest
-    return _truncate(markdown[:mid]), _truncate(markdown[mid:].lstrip())
+    # フォールバック側でも装飾を適用 (Markdown が混じっている可能性あり)
+    return (
+        _truncate(markdown_to_line(markdown[:mid])),
+        _truncate(markdown_to_line(markdown[mid:].lstrip())),
+    )
 
 
 def build_detail_url(streamlit_base_url: str, run_id: str | None) -> str:
