@@ -103,8 +103,17 @@ def test_webhook_ignores_non_allowed_user(client) -> None:  # type: ignore[no-un
 
 
 def test_webhook_returns_quota_message_when_exhausted(client) -> None:  # type: ignore[no-untyped-def]
+    """Phase 5 Theme A: 枯渇 reply に復活時刻 (⏰) と reset_at_jst_str が含まれる."""
+    from datetime import timedelta
+
     body = json.dumps(_event_payload()).encode()
-    fake_status = MagicMock(used=20, limit=20, remaining=0)
+    fake_status = MagicMock(
+        used=20,
+        limit=20,
+        remaining=0,
+        time_until_reset=timedelta(hours=3, minutes=24),
+        reset_at_jst_str="明日 00:00 JST",
+    )
     with (
         patch("src.line.webhook.LineHandler") as mock_handler_cls,
         patch("src.line.webhook.has_quota_for_question", return_value=False),
@@ -123,7 +132,13 @@ def test_webhook_returns_quota_message_when_exhausted(client) -> None:  # type: 
     # 枯渇メッセージを reply で返す
     mock_handler.reply_text.assert_called_once()
     sent_text = mock_handler.reply_text.call_args[0][1]
-    assert "使い切り" in sent_text or "枯渇" in sent_text or "20" in sent_text
+    # 使い切り通知
+    assert "使い切り" in sent_text
+    assert "20" in sent_text  # used/limit
+    # Phase 5 Theme A: 復活時刻情報
+    assert "⏰" in sent_text
+    assert "3 時間 24 分" in sent_text
+    assert "明日 00:00 JST" in sent_text
 
 
 def test_webhook_ignores_non_text_messages(client) -> None:  # type: ignore[no-untyped-def]

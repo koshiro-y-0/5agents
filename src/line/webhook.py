@@ -31,7 +31,7 @@ from src.agents.orchestrator import answer
 from src.config import get_settings
 from src.line.formatter import build_detail_url, split_for_line
 from src.line.handler import LineHandler
-from src.quota import get_flash_quota_status, has_quota_for_question
+from src.quota import format_until_reset, get_flash_quota_status, has_quota_for_question
 
 # uvicorn は自身のアクセスログだけ出すため、アプリ側 (logger.info 等) が
 # 何も出ない問題がある。INFO 以上を明示的に basicConfig。
@@ -134,14 +134,16 @@ def _handle_event(
     if not text:
         return
 
-    # Quota guard
+    # Quota guard (Phase 5 Theme A: 復活時刻も表示)
     if not has_quota_for_question():
         status = get_flash_quota_status()
         try:
             handler.reply_text(
                 reply_token,
                 f"⚠️ 本日の Gemini Flash 無料枠 ({status.used}/{status.limit}) を"
-                "使い切りました。明日リセット後にもう一度お送りください。",
+                f"使い切りました。\n"
+                f"⏰ {format_until_reset(status.time_until_reset)}で復活します "
+                f"({status.reset_at_jst_str})",
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("枯渇 reply 送信失敗: %s", e)

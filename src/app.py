@@ -17,7 +17,7 @@ from src.agents.orchestrator import answer
 from src.agents.state import AgentState
 from src.config import get_settings
 from src.memory.logger import RunLogger
-from src.quota import FLASH_CALLS_PER_QUESTION, get_flash_quota_status
+from src.quota import FLASH_CALLS_PER_QUESTION, format_until_reset, get_flash_quota_status
 
 st.set_page_config(page_title="5agents", page_icon="🤖", layout="wide")
 
@@ -93,7 +93,7 @@ with st.sidebar:
         f"あと約 {_quota.remaining // FLASH_CALLS_PER_QUESTION} 質問)"
     )
     if _quota.level == "exhausted":
-        st.error(f"❌ {_quota_text}\n本日の無料枠を使い切りました。明日まで質問不可。")
+        st.error(f"❌ {_quota_text}\n本日の無料枠を使い切りました。")
     elif _quota.level == "danger":
         st.error(f"🚨 {_quota_text}\n上限間近です。質問を控えるか明日に回してください。")
     elif _quota.level == "warn":
@@ -101,6 +101,11 @@ with st.sidebar:
     else:
         st.caption(f"✅ {_quota_text}")
     st.progress(min(_quota.pct, 1.0))
+    # Phase 5 Theme A: 次のリセットまでの残り時間
+    st.caption(
+        f"⏰ 次のリセット: {format_until_reset(_quota.time_until_reset)} "
+        f"({_quota.reset_at_jst_str})"
+    )
 
     st.divider()
     st.caption("**役割 → モデル**")
