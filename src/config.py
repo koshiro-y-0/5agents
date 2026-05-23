@@ -62,8 +62,17 @@ class Settings(BaseSettings):
         ]
 
     # --- UI 認証 (HF Spaces 公開デプロイ用) ---
-    # 設定すると Streamlit 起動時にパスワード入力フォームが出る。未設定だと素通り (ローカル開発互換).
-    streamlit_password: str = Field(default="", description="Streamlit UI のアクセスパスワード")
+    # 旧仕様 (Phase 5.C で撤去予定): 設定すると Streamlit 起動時にパスワード入力フォームが出る.
+    # 残してあるのは後方互換のため (env が残っていても警告のみ).
+    streamlit_password: str = Field(default="", description="(廃止予定) Streamlit UI のパスワード")
+
+    # Phase 5 Theme C: HF OAuth 初期 admin
+    # この HF username の人を起動時に admin として allowed_users に投入する.
+    # 既に存在する場合は上書きしない (誤って role を member にしないため).
+    initial_admin_hf_username: str = Field(
+        default="",
+        description="起動時に admin として登録する HF username (例: koshiro-y-12)",
+    )
 
     # --- Persistence ---
     # データの保存ルート。

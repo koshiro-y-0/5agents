@@ -15,6 +15,7 @@ import streamlit as st
 
 from src.agents.orchestrator import answer
 from src.agents.state import AgentState
+from src.auth import CurrentUser, get_current_user, is_oauth_enabled, register_login
 from src.config import get_settings
 from src.memory.logger import RunLogger
 from src.quota import FLASH_CALLS_PER_QUESTION, format_until_reset, get_flash_quota_status
@@ -22,39 +23,55 @@ from src.quota import FLASH_CALLS_PER_QUESTION, format_until_reset, get_flash_qu
 st.set_page_config(page_title="5agents", page_icon="🤖", layout="wide")
 
 
-# --- 認証ゲート (HF Spaces 等の公開デプロイ用) ---
-# STREAMLIT_PASSWORD が設定されているときだけ有効化。未設定ならローカル開発と同じく素通り。
-def _require_password() -> None:
-    """STREAMLIT_PASSWORD と一致するまで本体 UI をブロックする."""
-    password = get_settings().streamlit_password
-    if not password:
-        # パスワード未設定 → 素通り (ローカル開発 / Private Space 互換)
-        return
+# --- 認証ゲート (Phase 5 Theme C: HF OAuth ベース) ---
+def _require_auth() -> CurrentUser:
+    """HF OAuth でログイン済み + 許可ユーザーまで本体 UI をブロックする.
 
-    if st.session_state.get("authenticated"):
-        return
+    戻り値: 認証通過した CurrentUser. それ以外は st.stop() で中断.
 
-    st.title("🔒 5agents")
-    st.caption("このダッシュボードはパスワード保護されています。")
+    動作モード:
+    - ローカル開発 (OAUTH_CLIENT_ID 未設定): 認証スキップ、'_local_dev' admin として通過
+    - HF Space 未ログイン: "Sign in with Hugging Face" ボタンを表示
+    - HF Space ログイン済み・許可外: "アクセス権なし" 画面
+    - HF Space ログイン済み・許可済み: 本体 UI へ
+    """
+    user = get_current_user()
 
-    with st.form("auth_form", clear_on_submit=False):
-        entered = st.text_input("パスワード", type="password")
-        submitted = st.form_submit_button("ログイン")
+    # OAuth 無効 (ローカル開発) → ダミー admin で素通り
+    if not is_oauth_enabled():
+        if user is not None:
+            register_login(user)
+        return user  # type: ignore[return-value]  # is_oauth_enabled False のときは必ず非 None
 
-    if submitted:
-        # 比較は定数時間で (timing attack 対策)
-        import hmac as _hmac
+    # 未ログイン
+    if user is None:
+        st.title("🔒 5agents")
+        st.caption("Hugging Face アカウントでログインしてください。")
+        st.write("")
+        # st.login は引数なしで [auth] セクションの設定を使う
+        st.button("🤗  Sign in with Hugging Face", on_click=st.login, type="primary")
+        st.caption(
+            "Hugging Face アカウントをお持ちでない場合は "
+            "[こちらから無料作成 (30 秒)](https://huggingface.co/join) できます。"
+        )
+        st.stop()
 
-        if _hmac.compare_digest(entered, password):
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("パスワードが違います。")
+    # ログイン済みだが allowed_users にいない (role='guest')
+    if not user.is_allowed:
+        st.title("⛔ アクセス権がありません")
+        st.write(
+            f"HF ユーザー **`{user.username}`** はこの 5agents の許可リストに含まれていません。"
+        )
+        st.write("利用したい場合は管理者に依頼してください。")
+        st.button("ログアウト", on_click=st.logout)
+        st.stop()
 
-    st.stop()
+    # 通過: 最終ログイン時刻を更新
+    register_login(user)
+    return user
 
 
-_require_password()
+_current_user = _require_auth()
 
 st.title("🤖 5agents — マルチエージェント調査システム")
 st.caption("A: Researcher → B: Analyst → C: Critic → D: Fact-checker → E: Finalizer")
@@ -63,8 +80,24 @@ st.caption("A: Researcher → B: Analyst → C: Critic → D: Fact-checker → E
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- サイドバー: 環境チェック ---
+# --- サイドバー: ログインユーザー + 環境チェック ---
 with st.sidebar:
+    # Phase 5 Theme C: ログインユーザー表示
+    st.header("👤 ユーザー")
+    if _current_user.picture_url:
+        st.image(_current_user.picture_url, width=64)
+    role_badge = "🛡️ admin" if _current_user.is_admin else "👤 member"
+    st.markdown(
+        f"**{_current_user.display_name or _current_user.username}**  \n"
+        f"`{_current_user.username}` ({role_badge})"
+    )
+    if is_oauth_enabled():
+        if st.button("ログアウト", key="sidebar_logout"):
+            st.logout()
+    else:
+        st.caption("⚠️ ローカル開発モード (OAuth スキップ中)")
+
+    st.divider()
     st.header("環境")
     settings = get_settings()
 
@@ -225,7 +258,8 @@ def _render_chat_tab() -> None:
 
         with st.chat_message("assistant"), st.spinner("5 エージェントが調査・分析中..."):
             try:
-                state = answer(prompt)
+                # Phase 5 Theme C: 質問の発信者を runs.username に記録
+                state = answer(prompt, username=_current_user.username)
             except Exception as e:  # noqa: BLE001
                 st.error(f"❌ エラー: {e}")
                 st.session_state.messages.append(
@@ -346,9 +380,130 @@ def _render_dashboard_tab() -> None:
     st.dataframe(display_df, width="stretch", height=400)
 
 
-# --- タブ構成 ---
-tab_chat, tab_dashboard = st.tabs(["💬 チャット", "📊 ダッシュボード"])
-with tab_chat:
-    _render_chat_tab()
-with tab_dashboard:
-    _render_dashboard_tab()
+# --- 管理画面 (Phase 5 Theme C, admin のみ) ---
+def _render_admin_tab() -> None:
+    """admin 専用: 許可ユーザー CRUD + 統計."""
+    rlog = RunLogger()
+
+    st.subheader("👥 許可ユーザー一覧")
+    users = rlog.list_allowed_users()
+    if users:
+        # 各ユーザーの累計質問数を付与
+        for u in users:
+            u["queries"] = rlog.user_run_count(u["username"])
+        df = pd.DataFrame(users)
+        df = df.rename(
+            columns={
+                "username": "HF Username",
+                "role": "Role",
+                "display_name": "表示名",
+                "added_at": "追加日時",
+                "added_by": "追加者",
+                "last_login": "最終ログイン",
+                "queries": "質問数",
+            }
+        )
+        st.dataframe(df, width="stretch", hide_index=True)
+    else:
+        st.info("許可ユーザーが登録されていません。")
+
+    st.divider()
+
+    # 新規追加フォーム
+    with st.expander("➕ 新規ユーザー追加", expanded=False):
+        with st.form("add_user_form", clear_on_submit=True):
+            new_username = st.text_input(
+                "HF Username",
+                placeholder="例: friend-username",
+                help="<https://huggingface.co/> のプロフィール URL の最後の部分",
+            )
+            new_role = st.selectbox("Role", ["member", "admin"])
+            submitted = st.form_submit_button("追加")
+            if submitted:
+                username_clean = new_username.strip().lstrip("@")
+                if not username_clean:
+                    st.error("Username を入力してください")
+                elif username_clean.startswith("@line:"):
+                    st.error("`@line:` で始まる username は予約済みです (LINE 用)")
+                else:
+                    try:
+                        rlog.add_allowed_user(
+                            username=username_clean,
+                            role=new_role,
+                            added_by=_current_user.username,
+                        )
+                        st.success(f"✅ `{username_clean}` を **{new_role}** として追加しました")
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"追加失敗: {e}")
+
+    # ロール変更
+    with st.expander("✏️ ロール変更"):
+        if users:
+            target_username = st.selectbox(
+                "対象ユーザー",
+                [u["username"] for u in users],
+                key="role_change_target",
+            )
+            target_new_role = st.selectbox(
+                "新しい Role",
+                ["member", "admin"],
+                key="role_change_new",
+            )
+            if st.button("ロール変更", key="btn_role_change"):
+                if target_username == _current_user.username and target_new_role != "admin":
+                    st.error("自分自身を admin から外すことはできません")
+                else:
+                    try:
+                        rlog.update_user_role(target_username, target_new_role)
+                        st.success(
+                            f"✅ `{target_username}` の role を **{target_new_role}** に変更"
+                        )
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"変更失敗: {e}")
+        else:
+            st.caption("変更対象のユーザーがいません")
+
+    # 削除
+    with st.expander("🗑️ ユーザー削除"):
+        if users:
+            del_target = st.selectbox(
+                "削除するユーザー",
+                [u["username"] for u in users],
+                key="del_target",
+            )
+            del_confirm = st.checkbox(f"`{del_target}` を本当に削除する", key="del_confirm")
+            if st.button("削除", type="primary", key="btn_del"):
+                if del_target == _current_user.username:
+                    st.error("自分自身は削除できません")
+                elif not del_confirm:
+                    st.error("確認チェックを入れてください")
+                else:
+                    try:
+                        rlog.remove_allowed_user(del_target)
+                        st.success(f"✅ `{del_target}` を削除しました")
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"削除失敗: {e}")
+        else:
+            st.caption("削除対象のユーザーがいません")
+
+
+# --- タブ構成 (admin のみ管理タブ追加) ---
+if _current_user.is_admin:
+    tab_chat, tab_dashboard, tab_admin = st.tabs(
+        ["💬 チャット", "📊 ダッシュボード", "👥 管理"]
+    )
+    with tab_chat:
+        _render_chat_tab()
+    with tab_dashboard:
+        _render_dashboard_tab()
+    with tab_admin:
+        _render_admin_tab()
+else:
+    tab_chat, tab_dashboard = st.tabs(["💬 チャット", "📊 ダッシュボード"])
+    with tab_chat:
+        _render_chat_tab()
+    with tab_dashboard:
+        _render_dashboard_tab()

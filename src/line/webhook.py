@@ -28,6 +28,7 @@ import sys
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 from src.agents.orchestrator import answer
+from src.auth import line_username
 from src.config import get_settings
 from src.line.formatter import build_detail_url, split_for_line
 from src.line.handler import LineHandler
@@ -167,7 +168,8 @@ def _run_pipeline_and_push(question: str, user_id: str, handler: LineHandler) ->
     """5agents を実行し、結果を Push で送信."""
     settings = get_settings()
     try:
-        state = answer(question)
+        # Phase 5 Theme C: LINE 経由クエリは '@line:<UserId>' で記録 (HF と衝突回避)
+        state = answer(question, username=line_username(user_id))
     except Exception as e:  # noqa: BLE001
         logger.exception("5agents 実行失敗: %s", e)
         try:
