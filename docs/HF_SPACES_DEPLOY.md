@@ -92,12 +92,17 @@ Settings → **"Variables and secrets"** で以下を **"Secret" (公開しな�
 | `GOOGLE_API_KEY` | ✅ | Gemini の API key (`AIza...`) |
 | `GROQ_API_KEY` | ✅ | Groq の API key (`gsk_...`) |
 | `TAVILY_API_KEY` | ✅ | Tavily の API key (`tvly-...`) |
-| `STREAMLIT_PASSWORD` | ✅ | UI のパスワード (英数 16 文字以上推奨) |
+| `INITIAL_ADMIN_HF_USERNAME` | ✅ (Phase 5.C) | あなたの HF username (例: `koshiro-y-12`) — 起動時に admin として登録される |
 | `LINE_CHANNEL_SECRET` | △ | LINE 連携時のみ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | △ | LINE 連携時のみ |
 | `LINE_ALLOWED_USER_IDS` | △ | 許可する LINE User ID (カンマ区切り) |
 | `STREAMLIT_BASE_URL` | △ | `https://<ユーザー>-<space名>.hf.space` (Flex Message の詳細ボタン用) |
 | `APP_ENV` | — | `production` (デフォルト `development`) |
+| ~~`STREAMLIT_PASSWORD`~~ | ❌ 廃止 | Phase 5.C で HF OAuth に置換。Secret から削除可 |
+
+> ⚠️ Phase 5.C 以降は **`hf_oauth: true`** が `huggingface/README.md` の frontmatter に含まれており、
+> HF が自動的に `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` / `OPENID_PROVIDER_URL` / `SPACE_HOST` を
+> 環境変数として注入する (手動登録不要)。
 
 ### 4. リポジトリを HF Space に push
 

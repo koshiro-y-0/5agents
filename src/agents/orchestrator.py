@@ -114,8 +114,16 @@ def build_graph():  # type: ignore[no-untyped-def]
 _graph = build_graph()
 
 
-def answer(question: str) -> AgentState:
-    """5 エージェントを通してユーザーの質問に回答 (SQLite ロガー付き)."""
+def answer(question: str, username: str | None = None) -> AgentState:
+    """5 エージェントを通してユーザーの質問に回答 (SQLite ロガー付き).
+
+    Args:
+        question: ユーザー質問
+        username: 誰の質問か (Phase 5 Theme C で追加).
+                  - HF UI: preferred_username
+                  - LINE: '@line:<UserId>' (auth.line_username() で生成)
+                  - None: 旧スクリプト等で未指定 (NULL 記録)
+    """
     global _CURRENT_RUN_ID, _CURRENT_RUN_LOGGER
 
     # SQLite ロガー初期化 (失敗してもメイン処理は止めない)
@@ -123,7 +131,7 @@ def answer(question: str) -> AgentState:
     run_id: str | None
     try:
         run_logger = RunLogger()
-        run_id = run_logger.start_run(question)
+        run_id = run_logger.start_run(question, username=username)
     except Exception as e:  # noqa: BLE001
         logger.warning("RunLogger 初期化失敗: %s", e)
         run_logger = None

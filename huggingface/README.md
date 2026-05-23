@@ -8,6 +8,14 @@ app_port: 7860
 suggested_storage: small
 pinned: false
 short_description: 5 体構成のマルチエージェント調査 AI (LINE + Web UI)
+# Phase 5 Theme C: HF アカウントでの Sign-In (OAuth) を有効化
+# HF が OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET / OPENID_PROVIDER_URL を自動注入する.
+# 許可ユーザー (allowed_users テーブル) のみダッシュボードにアクセスできる.
+hf_oauth: true
+hf_oauth_expiration_minutes: 43200  # 30 日 (最大値)
+hf_oauth_scopes:
+  - openid
+  - profile
 ---
 
 # 5agents on Hugging Face Spaces
