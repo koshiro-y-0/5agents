@@ -11,11 +11,10 @@ short_description: 5 体構成のマルチエージェント調査 AI (LINE + We
 # Phase 5 Theme C: HF アカウントでの Sign-In (OAuth) を有効化
 # HF が OAUTH_CLIENT_ID / OAUTH_CLIENT_SECRET / OPENID_PROVIDER_URL を自動注入する.
 # 許可ユーザー (allowed_users テーブル) のみダッシュボードにアクセスできる.
+# 注: openid と profile は常に付与されるデフォルトスコープ。hf_oauth_scopes には
+#     追加で必要なスコープ (email/read-repos 等) だけを列挙する。今回は不要なので省略。
 hf_oauth: true
 hf_oauth_expiration_minutes: 43200  # 30 日 (最大値)
-hf_oauth_scopes:
-  - openid
-  - profile
 ---
 
 # 5agents on Hugging Face Spaces
