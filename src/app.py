@@ -48,8 +48,11 @@ def _require_auth() -> CurrentUser:
         st.title("🔒 5agents")
         st.caption("Hugging Face アカウントでログインしてください。")
         st.write("")
-        # st.login は引数なしで [auth] セクションの設定を使う
-        st.button("🤗  Sign in with Hugging Face", on_click=st.login, type="primary")
+        # 注意: Streamlit native auth は `if st.button(...): st.login()` のパターンが
+        #       公式推奨。on_click=st.login コールバックだと内部 rerun 順序の都合で
+        #       redirect が発火しない (実機 HF Spaces で確認済み).
+        if st.button("🤗  Sign in with Hugging Face", type="primary"):
+            st.login()
         st.caption(
             "Hugging Face アカウントをお持ちでない場合は "
             "[こちらから無料作成 (30 秒)](https://huggingface.co/join) できます。"
@@ -63,7 +66,8 @@ def _require_auth() -> CurrentUser:
             f"HF ユーザー **`{user.username}`** はこの 5agents の許可リストに含まれていません。"
         )
         st.write("利用したい場合は管理者に依頼してください。")
-        st.button("ログアウト", on_click=st.logout)
+        if st.button("ログアウト"):
+            st.logout()
         st.stop()
 
     # 通過: 最終ログイン時刻を更新
