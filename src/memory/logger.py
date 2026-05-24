@@ -66,15 +66,19 @@ CREATE TABLE IF NOT EXISTS allowed_users (
     last_login      TEXT,
     display_name    TEXT
 );
-
-CREATE INDEX IF NOT EXISTS idx_runs_username ON runs(username);
 """
 
 # 既存 DB に対する後方互換マイグレーション (Phase 5 Theme C 追加)
-# - 既存 runs テーブルに username カラムを追加 (NULL 許容)
-# - allowed_users テーブルは CREATE TABLE IF NOT EXISTS で安全
+# 重要: 既存 DB の runs テーブルは username カラムが無いまま CREATE TABLE IF NOT EXISTS
+#       を no-op で通過するので、ALTER TABLE → CREATE INDEX の順で個別実行が必要.
+#       executescript() で SCHEMA に CREATE INDEX を含めると、ALTER 前に走って
+#       "no such column: username" で全 SCHEMA がロールバックされ allowed_users も
+#       作られない (Phase 5.C デプロイで実際に発生したバグ).
 _MIGRATIONS: tuple[str, ...] = (
+    # 1. 既存 runs テーブルへの username カラム追加 (既に存在すれば duplicate column で無視)
     "ALTER TABLE runs ADD COLUMN username TEXT",
+    # 2. username インデックスを ALTER の後に作成 (上の ALTER が必須なので順序固定)
+    "CREATE INDEX IF NOT EXISTS idx_runs_username ON runs(username)",
 )
 
 
